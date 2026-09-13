@@ -32,7 +32,7 @@ class Utils:
         cohere_client = cohere.Client(api_key=cohere_api_key)
 
         response = cohere_client.rerank(
-            model="rerank-english-v3.0",
+            model="rerank-v3.5",
             query=query,
             documents=[doc.page_content for doc in document],
             top_n=3,

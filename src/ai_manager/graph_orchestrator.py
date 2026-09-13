@@ -472,7 +472,6 @@ class GraphOrchestrator:
             "memory_results": result
         }
 
-
     @staticmethod
     @traceable
     def rag_node(state: State):
@@ -481,18 +480,20 @@ class GraphOrchestrator:
         embedding_model = DBManager.embedding_model.model_name
         K = 10
         rag_pipeline_version = Utils.get_rag_pipeline_version(
-            score_threshold= EXPECTED_SCORE,
-            rerank_threshold= RERANK_THRESHOLD,
+            score_threshold=EXPECTED_SCORE,
+            rerank_threshold=RERANK_THRESHOLD,
             k=K,
-            reranker= embedding_model)
+            reranker=embedding_model)
 
         query = state["messages"][-1].content
         rewritten_query = DBManager.rewrite_query(state["messages"])
         cache = DBManager.get_rag_cache()
 
-        cached = cache.lookup(
-            prompt= rewritten_query,
-            llm_string= rag_pipeline_version
+        eval_mode = state.get("eval_mode", False)  # NEW
+
+        cached = None if eval_mode else cache.lookup(  # CHANGED — skip lookup entirely in eval_mode
+            prompt=rewritten_query,
+            llm_string=rag_pipeline_version
         )
         if cached:
             cached_result = cached[0].text
@@ -501,12 +502,10 @@ class GraphOrchestrator:
                 "messages": [
                     AIMessage(content=cached_result)
                 ],
+                "retrieved_context": cached_result,  # NEW — kept for consistency
+                "retrieved_chunks": [cached_result],  # NEW — list form
             }
-            # return {
-            #     "original_query": query,
-            #     "rewritten_query": rewritten_query,
-            #     "retrieved_context": cached_result,
-            # }
+
         print("RAG cache MISS — running full retrieval pipeline")
 
         vector_store = DBManager.setup_vector_store()
@@ -520,8 +519,6 @@ class GraphOrchestrator:
 
         rerank_doc = Utils.rerank_query_response(query=query, document=filtered)
 
-
-
         top_results = [r for r in rerank_doc.results if r.relevance_score >= RERANK_THRESHOLD]
 
         if not top_results:
@@ -532,22 +529,25 @@ class GraphOrchestrator:
             print("all the rerank docs :", result.document)
             print("all the rerank docs texts :", result.document.text)
 
-        retrieved_context = "\n\n".join(
+        top_chunks = [  # NEW — list form, built once
             f"[{filtered[r.index].metadata.get('category', 'unknown')}] {filtered[r.index].page_content}"
             for r in top_results
-        )
+        ]
 
-        # STEP 3: Save to cache for next time
-        cache.update(
-            prompt=rewritten_query,
-            llm_string=rag_pipeline_version,
-            return_val=[Generation(text=retrieved_context)],
-        )
+        retrieved_context = "\n\n".join(top_chunks)  # CHANGED — now built from top_chunks
+
+        if not eval_mode:
+            cache.update(
+                prompt=rewritten_query,
+                llm_string=rag_pipeline_version,
+                return_val=[Generation(text=retrieved_context)],
+            )
 
         return {
             "original_query": query,
             "rewritten_query": rewritten_query,
             "retrieved_context": retrieved_context,
+            "retrieved_chunks": top_chunks,
         }
 
 

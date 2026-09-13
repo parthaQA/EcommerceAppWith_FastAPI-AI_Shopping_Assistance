@@ -29,12 +29,17 @@ faiss-cpu
 langchain_postgres
 langchain_huggingface
 langgraph-cli[inmem]
-elasticsearch=8.15.0
+elasticsearch==8.15.0
 boto3
 awscli
 cohere
 langchain-redis
 deepeval
+pytest-html
+psycopg2
+PyJWT
+
+
 
 ##fastapi dev main.py --reload
 ##python -m streamlit run src\streamlit_ai\streamlit_app.py
