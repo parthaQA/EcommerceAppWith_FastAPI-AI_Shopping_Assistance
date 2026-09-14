@@ -474,6 +474,25 @@ class GraphOrchestrator:
 
     @staticmethod
     @traceable
+    def memory_read_node(state: State):
+
+        query = state["messages"][-1].content
+        customer_id = config["configurable"]["thread_id"]
+
+        retrieved_messages = DBManager.retrieve_from_mem0_db(
+            customer_id=customer_id,
+            query=query
+        )
+
+        print("Memory search query:", query)
+        print("Retrieved memories:", retrieved_messages)
+
+        return {
+            "memory_results": retrieved_messages
+        }
+
+    @staticmethod
+    @traceable
     def rag_node(state: State):
         RERANK_THRESHOLD = 0.05
         EXPECTED_SCORE = 0.2
@@ -576,6 +595,11 @@ class GraphOrchestrator:
 
         graph.add_node("rag_node", GraphOrchestrator.rag_node)
 
+        graph.add_node(
+            "memory_read",
+            GraphOrchestrator.memory_read_node
+        )
+
         # -----------------------------
         # Now connect them
         # -----------------------------
@@ -603,6 +627,7 @@ class GraphOrchestrator:
             "get cart details": "agent",
             "general": "agent",
             "memory_write": "memory_write",
+            "memory_read": "memory_read",
             "rag_node": "rag_node",
             }
         )
@@ -643,6 +668,8 @@ class GraphOrchestrator:
             "memory_write",
             "agent"
         )
+
+        graph.add_edge("memory_read", "agent")
 
         graph.add_edge(
             "rag_node",

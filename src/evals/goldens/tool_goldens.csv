@@ -1,0 +1,4 @@
+input,expected_tools,input_parameters
+"Add to cart 1 quantity of potato",add_product_to_cart,"{""product_name"": ""potato"", ""quantity"": 1}"
+"get my cart details?",get_cart,
+"Search potato",search_product,"{""name"": ""potato""}"

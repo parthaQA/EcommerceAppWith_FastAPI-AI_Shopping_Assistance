@@ -1,0 +1,3 @@
+input,expected_output
+"If I return a product within 3 days of delivery, how much refund will I get?","You will get a 100% refund of the product amount, since the return is within 5 days of delivery."
+"I want to return a product 7 days after delivery. What refund can I expect?","You will get a 50% refund of the product amount, since the return is more than 5 days but within 10 days from delivery."

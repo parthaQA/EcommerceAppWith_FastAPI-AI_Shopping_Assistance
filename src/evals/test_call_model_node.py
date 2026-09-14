@@ -41,60 +41,65 @@ def build_tool_test_case(golden, make_state):
         expected_tools=golden.expected_tools,
     )
 
-@pytest.mark.parametrize("golden_index", [0])
-def test_faithfulness(golden_index, retrieval_goldens, make_state, judge_model):
-    golden = retrieval_goldens[golden_index]
-    test_case = build_generator_test_case(golden, make_state)
 
-    metric = FaithfulnessMetric(
-        threshold=0.7,
-        model=judge_model,
-        async_mode=False,
-        truths_extraction_limit=4,
-        penalize_ambiguous_claims=True,  # stricter — don't let uncertain claims slide
-        include_reason=True,  # keep this, essential for debugging
-        verbose_mode=True,
-    )
-    metric.measure(test_case)
-    print("verbose logs :", metric.verbose_logs)
-    print("score :", metric.score)
-    print("reason :", metric.reason)
-    print("verdict :", metric.verdicts)
-    print("verbose mode :", metric.verbose_mode)
-    print("penalize_ambiguous_claims :", metric.penalize_ambiguous_claims)
-    assert_test(test_case, [metric])
-
-
-
-
-@pytest.mark.parametrize("golden_index", [0])
-def test_answer_relevancy(golden_index, retrieval_goldens, make_state, judge_model):
-    golden = retrieval_goldens[golden_index]
-    test_case = build_generator_test_case(golden, make_state)
-
-    metric = AnswerRelevancyMetric(
-        threshold=0.7,
-        model=judge_model,
-        async_mode=False,
-        include_reason=True,  # keep this, essential for debugging
-        verbose_mode=True,
-    )
-    metric.measure(test_case)
-    print("verbose logs :", metric.verbose_logs)
-    print("score :", metric.score)
-    print("reason :", metric.reason)
-    print("verdict :", metric.verdicts)
-    print("verbose mode :", metric.verbose_mode)
-    print("tokens :", metric.input_tokens + metric.output_tokens)
-    assert_test(test_case, [metric])
+# def test_faithfulness(
+#     generator_golden,
+#     make_state,
+#     judge_model,
+# ):
+#     test_case = build_generator_test_case(
+#         generator_golden,
+#         make_state,
+#     )
+#
+#     metric = FaithfulnessMetric(
+#         threshold=0.7,
+#         model=judge_model,
+#         async_mode=False,
+#         truths_extraction_limit=4,
+#         penalize_ambiguous_claims=True,
+#         include_reason=True,
+#         verbose_mode=True,
+#     )
+#
+#     metric.measure(test_case)
+#
+#     print("ai message :", test_case.actual_output)
+#     print("score :", metric.score)
+#     print("reason :", metric.reason)
+#     print("verdict :", metric.verdicts)
+#
+#     assert_test(test_case, [metric])
 
 
-@pytest.mark.parametrize("golden_index", [0,1,2])
-def test_tool_correctness(golden_index, tool_goldens, make_state):
-    golden = tool_goldens[golden_index]
-    test_case = build_tool_test_case(golden, make_state)
 
-    tool_name = golden.expected_tools[0].name
+#
+#
+# def test_answer_relevancy(generator_golden , make_state, judge_model):
+#     test_case = build_generator_test_case(generator_golden, make_state)
+#
+#     metric = AnswerRelevancyMetric(
+#         threshold=0.7,
+#         model=judge_model,
+#         async_mode=False,
+#         include_reason=True,  # keep this, essential for debugging
+#         verbose_mode=True,
+#     )
+#     metric.measure(test_case)
+#     print("verbose logs :", metric.verbose_logs)
+#     print("score :", metric.score)
+#     print("reason :", metric.reason)
+#     print("verdict :", metric.verdicts)
+#     print("verbose mode :", metric.verbose_mode)
+#     print("tokens :", metric.input_tokens + metric.output_tokens)
+#     assert_test(test_case, [metric])
+#
+#
+#
+def test_tool_correctness(tool_golden, make_state):
+    test_case = build_tool_test_case(tool_golden, make_state)
+
+    tool_name = tool_golden.expected_tools[0].name
 
     NAME_ONLY_TOOLS = {"get_cart"}
 

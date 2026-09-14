@@ -1,4 +1,7 @@
+import csv
+import json
 import os
+from pathlib import Path
 
 from deepeval.test_case import ToolCall
 
@@ -10,6 +13,15 @@ import pytest
 from langchain_core.messages import HumanMessage
 from deepeval.models import OllamaModel
 from deepeval.dataset import Golden
+
+
+BASE_DIR = Path(__file__).resolve().parent
+GOLDENS_DIR = BASE_DIR / "goldens"
+
+GENERATOR_GOLDENS = GOLDENS_DIR / "generator_goldens.csv"
+TOOL_CALL_GOLDENS = GOLDENS_DIR / "tool_goldens.csv"
+RETRIEVAL_GOLDENS = GOLDENS_DIR / "retrieval_goldens.csv"
+
 
 @pytest.fixture(scope="session")
 def judge_model():
@@ -31,34 +43,83 @@ def make_state():
         return state
     return _make_state
 
-@pytest.fixture
-def retrieval_goldens():
-    return [
-        Golden(
-            input="If I return a product within 3 days of delivery, how much refund will I get?",
-            expected_output="You will get a 100% refund of the product amount, since the return is within 5 days of delivery.",
-        ),
-        Golden(
-            input="I want to return a product 7 days after delivery. What refund can I expect?",
-            expected_output="You will get a 50% refund of the product amount, since the return is more than 5 days but within 10 days from delivery.",
-        ),
-    ]
+def load_csv_rows(file_name):
+    csv_path = GOLDENS_DIR / file_name
 
-@pytest.fixture
-def tool_goldens():
-    return [
-        Golden(
-            input="Add to cart 1 quantity of potato",
-            expected_tools=[ToolCall(name="add_product_to_cart", input_parameters={"product_name" :"potato", "quantity": 1})],
-        ),
-        Golden(
-            input="get my cart details?",
-            expected_tools=[ToolCall(name="get_cart")],
-        ),
-        Golden(
-            input="Search potato",
-            expected_tools=[ToolCall(name="search_product",
-                                     input_parameters={"name" :"potato"})],
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
-        ),
-    ]
+def pytest_generate_tests(metafunc):
+
+    # Retrieval goldens
+    if "retrieval_golden" in metafunc.fixturenames:
+        rows = load_csv_rows(RETRIEVAL_GOLDENS)
+
+        metafunc.parametrize(
+            "retrieval_golden",
+            rows,
+            indirect=True,
+        )
+
+    # Generator goldens
+    if "generator_golden" in metafunc.fixturenames:
+        rows = load_csv_rows(GENERATOR_GOLDENS)
+
+        metafunc.parametrize(
+            "generator_golden",
+            rows,
+            indirect=True,
+        )
+
+    # Tool goldens
+    if "tool_golden" in metafunc.fixturenames:
+        rows = load_csv_rows(TOOL_CALL_GOLDENS)
+
+        metafunc.parametrize(
+            "tool_golden",
+            rows,
+            indirect=True,
+        )
+
+
+@pytest.fixture(scope="function")
+def retrieval_golden(request):
+    row = request.param
+
+    return Golden(
+        input=row["input"],
+        expected_output=row["expected_output"],
+    )
+
+
+@pytest.fixture(scope="function")
+def generator_golden(request):
+    row = request.param
+
+    return Golden(
+        input=row["input"],
+        expected_output=row["expected_output"],
+    )
+
+
+@pytest.fixture(scope="function")
+def tool_golden(request):
+    row = request.param
+
+    raw_params = row.get("input_parameters", "").strip()
+
+    input_parameters = (
+        json.loads(raw_params)
+        if raw_params
+        else None
+    )
+
+    return Golden(
+        input=row["input"],
+        expected_tools=[
+            ToolCall(
+                name=row["expected_tools"],
+                input_parameters=input_parameters,
+            )
+        ],
+    )

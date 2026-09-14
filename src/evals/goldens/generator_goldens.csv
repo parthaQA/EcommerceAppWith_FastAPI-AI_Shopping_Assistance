@@ -1,0 +1,4 @@
+input,expected_output
+"Can I get a refund if I return it exactly 5 days after delivery?","Yes. A return within 5 days from the delivery date qualifies for a 100% refund of the product amount."
+"Can I get a refund if I return it exactly 10 days after delivery?","Yes. A return after 5 days and up to 10 days from the delivery date qualifies for a 50% refund of the product amount."
+"Can I get a refund if I return it on the 11th day?","No. Returns after 10 days from the delivery date are not eligible for a refund."

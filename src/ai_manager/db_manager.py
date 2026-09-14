@@ -12,11 +12,17 @@ from mem0 import Memory
 
 from src.ai_manager.ai_manager import llm_chat
 from src.ai_manager.mem0_config import config
+from src.utils.redis import REDIS_URL
 
 
 class DBManager:
 
     load_dotenv()
+
+    REDIS_URL = os.getenv(
+        "REDIS_URL",
+        "redis://localhost:6379"
+    )
 
     embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
@@ -152,10 +158,11 @@ class DBManager:
     def get_rag_cache():
         if DBManager._rag_cache is None:
             DBManager._rag_cache = RedisSemanticCache(
-                redis_url="redis://localhost:6379",
+                redis_url=REDIS_URL,
                 embeddings=DBManager.embedding_model,
                 distance_threshold=0.08,
                 name="rag_context_cache",
                 ttl=3600
             )
+
         return DBManager._rag_cache

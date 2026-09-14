@@ -63,7 +63,7 @@ login_response = asyncio.run(
 )
 
 langsmith = LangChainTracer(
-    project_name="ecom-Agent_latest_v2",
+    project_name="ecom-Agent_latest_v3",
 )
 
 config = {
@@ -89,22 +89,6 @@ config = {
 }
 
 print("chat config : ", config)
-
-# from urllib.parse import quote_plus
-#
-# password = quote_plus("asdf#1234")
-#
-# DATABASE_URL = (
-#     f"postgresql://postgres:{password}@localhost:5432/ecom"
-# )
-#
-# pool = ConnectionPool(conninfo=DATABASE_URL,
-#                       kwargs={"autocommit": True},
-#                       )
-#
-# checkpointer = PostgresSaver(pool)
-#
-# checkpointer.setup()
 
 
 

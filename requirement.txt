@@ -38,6 +38,7 @@ deepeval
 pytest-html
 psycopg2
 PyJWT
+streamlit
 
 
 

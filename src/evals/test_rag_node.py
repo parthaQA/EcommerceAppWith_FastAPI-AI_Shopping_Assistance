@@ -24,42 +24,44 @@ def build_retriever_test_case(golden, state):
 
 
 
-@pytest.mark.parametrize("golden_index", [0, 1])
-def test_contextual_precision(golden_index, retrieval_goldens, make_state, judge_model):
-    golden = retrieval_goldens[golden_index]
-    state = make_state(golden.input)
-    test_case = build_retriever_test_case(golden, state)
+
+def test_contextual_precision(retrieval_golden, make_state, judge_model):
+    state = make_state(retrieval_golden.input)
+    test_case = build_retriever_test_case(retrieval_golden, state)
 
     metric = ContextualPrecisionMetric(threshold=0.7, model=judge_model, async_mode=False)
+    metric.measure(test_case)  # run it explicitly first, so verbose_logs gets populated
+    print("verbose logs :", metric.verbose_logs)
+    print("score :", metric.score)
+    print("reason :", metric.reason)
+
     assert_test(test_case, [metric])
 
 
-@pytest.mark.parametrize("golden_index", [0, 1])
-def test_contextual_recall(golden_index, retrieval_goldens, make_state, judge_model):
-    golden = retrieval_goldens[golden_index]
-    state = make_state(golden.input)
-    test_case = build_retriever_test_case(golden, state)
+def test_contextual_recall(retrieval_golden, make_state, judge_model):
+    state = make_state(retrieval_golden.input)
+    test_case = build_retriever_test_case(retrieval_golden, state)
 
     metric = ContextualRecallMetric(threshold=0.7, model=judge_model)
     assert_test(test_case, [metric])
 
 
-@pytest.mark.parametrize("golden_index", [0, 1])
-def test_contextual_relevancy(golden_index, retrieval_goldens, make_state, judge_model):
-    golden = retrieval_goldens[golden_index]
-    state = make_state(golden.input)
-    test_case = build_retriever_test_case(golden, state)
+
+def test_contextual_relevancy(retrieval_golden, make_state, judge_model):
+
+    state = make_state(retrieval_golden.input)
+    test_case = build_retriever_test_case(retrieval_golden, state)
 
     metric = ContextualRelevancyMetric(threshold=0.7, model=judge_model)
     assert_test(test_case, [metric])
 
 
-@pytest.mark.range
-@pytest.mark.parametrize("golden_index", [0, 1])
-def test_range_aware_relevancy(golden_index, retrieval_goldens, make_state, judge_model):
-    golden = retrieval_goldens[golden_index]
-    state = make_state(golden.input)
-    test_case = build_retriever_test_case(golden, state)
+
+def test_range_aware_relevancy(retrieval_golden, make_state, judge_model):
+
+    state = make_state(retrieval_golden.input)
+    test_case = build_retriever_test_case(retrieval_golden, state)
+
     range_check_evaluator = BinaryJudgementNode(
         criteria=RANGE_CHECK_CRITERIA,
         evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.RETRIEVAL_CONTEXT],
