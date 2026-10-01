@@ -1,6 +1,4 @@
-import pytest
 from deepeval import assert_test
-from deepeval.evaluate import AsyncConfig
 from deepeval.metrics.dag import BinaryJudgementNode
 from deepeval.test_case import LLMTestCase, SingleTurnParams
 from deepeval.metrics import (
@@ -9,7 +7,7 @@ from deepeval.metrics import (
     ContextualRelevancyMetric, DeepAcyclicGraph, DAGMetric,
 )
 from src.ai_manager.graph_orchestrator import GraphOrchestrator
-from src.evals.dag_criterias import RANGE_CHECK_CRITERIA
+from src.ai_manager.evals.dag_criterias import RANGE_CHECK_CRITERIA
 
 
 def build_retriever_test_case(golden, state):

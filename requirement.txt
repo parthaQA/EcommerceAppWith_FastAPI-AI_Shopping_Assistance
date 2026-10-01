@@ -2,8 +2,14 @@ fastapi[standard]
 pydantic-settings
 pydantic
 SQLAlchemy
+asyncpg
+greenlet
+aiosqlite
+httpx
 redis
+bcrypt
 pytest
+pytest-asyncio
 pytest-mock
 aio-pika
 langchain-ollama

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, BigInteger, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, BigInteger, Integer, ForeignKey
 from src.utils.db import BASE
 from src.utils.helper import Helper
 from datetime import datetime, timezone
@@ -38,3 +38,17 @@ class RefreshTokenModel(BASE):
     is_revoked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime)
+
+
+class SavedAddressModel(BASE):
+    __tablename__ = "saved_address"
+
+    id = Column(Integer, primary_key=True, unique=True, autoincrement=True, nullable=False)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
+    address = Column(String, nullable=False)
+    pincode = Column(String, nullable=False)
+    city = Column(String, nullable=False)
+    created_date = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )

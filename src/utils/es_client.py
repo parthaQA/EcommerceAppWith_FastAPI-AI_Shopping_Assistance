@@ -1,7 +1,7 @@
-# es_client.py
-from elasticsearch import Elasticsearch  # sync client, matches your sync SQLAlchemy style
+from elasticsearch import AsyncElasticsearch
+from fastapi import Request
 
-es = Elasticsearch("http://localhost:9200")
+from src.utils.settings import settings
 
 PRODUCT_INDEX = "products"
 
@@ -16,13 +16,64 @@ INDEX_MAPPING = {
     }
 }
 
+_es: AsyncElasticsearch | None = None
+
+
+async def connect_elasticsearch() -> AsyncElasticsearch:
+    global _es
+    if _es is None:
+        _es = AsyncElasticsearch(settings.ELASTICSEARCH_URL)
+    return _es
+
+
+def get_es_client() -> AsyncElasticsearch:
+    global _es
+    if _es is None:
+        _es = AsyncElasticsearch(settings.ELASTICSEARCH_URL)
+    return _es
+
+
+async def close_elasticsearch() -> None:
+    global _es
+    if _es is not None:
+        await _es.close()
+        _es = None
+
+
+async def get_es(request: Request) -> AsyncElasticsearch:
+    es = getattr(request.app.state, "es", None)
+    if es is None:
+        es = await connect_elasticsearch()
+        request.app.state.es = es
+    return es
+
+
 class ESClient:
 
     @staticmethod
-    def create_index_if_not_exists():
-        if not es.indices.exists(index=PRODUCT_INDEX):
+    async def create_index_if_not_exists(es: AsyncElasticsearch):
+        exists = await es.indices.exists(index=PRODUCT_INDEX)
+        if not exists:
             try:
-                es.indices.create(index=PRODUCT_INDEX, mappings=INDEX_MAPPING["mappings"])
+                await es.indices.create(
+                    index=PRODUCT_INDEX,
+                    mappings=INDEX_MAPPING["mappings"],
+                )
             except Exception as e:
                 print("ES error detail:", getattr(e, "info", str(e)))
                 raise
+
+    @staticmethod
+    async def index_product(es: AsyncElasticsearch, product) -> None:
+        await ESClient.create_index_if_not_exists(es)
+        await es.index(
+            index=PRODUCT_INDEX,
+            id=str(product.product_id),
+            document={
+                "product_id": product.product_id,
+                "product_name": product.product_name,
+                "product_price": product.product_price,
+                "product_quantity": product.product_quantity,
+            },
+            refresh="wait_for",
+        )

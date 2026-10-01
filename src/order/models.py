@@ -8,6 +8,7 @@ class OrderModel(BASE):
     __tablename__ = "orders"
 
     id = Column(String(20), primary_key=True, unique=True, nullable=False)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
     cart_id = Column(String, ForeignKey("cart.cart_id"))
     address_id = Column(Integer, ForeignKey("delivery_address.id"))
     payment_mode = Column(String, nullable=False)

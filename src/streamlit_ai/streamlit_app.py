@@ -136,17 +136,18 @@ class StreamlitShoppingAssistant:
             placeholder="Enter OTP"
         )
         customer_controller = CustomerController()
-        db = Local_Session()
         if st.button("Login"):
-            login_response = asyncio.run(
-                customer_controller.customer_login_internal(
-                    body=CustomerLoginSchema(
-                        mobile=int(mobile),
-                        password=otp  # OTP is passed here
-                    ),
-                    db=db
-                )
-            )
+            async def _login():
+                async with Local_Session() as db:
+                    return await customer_controller.customer_login_internal(
+                        body=CustomerLoginSchema(
+                            mobile=int(mobile),
+                            password=otp,
+                        ),
+                        db=db,
+                    )
+
+            login_response = asyncio.run(_login())
 
             st.session_state.logged_in = True
 

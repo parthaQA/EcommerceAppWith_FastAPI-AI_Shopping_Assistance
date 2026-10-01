@@ -1,42 +1,36 @@
-from fastapi import APIRouter, Depends, status, Query
-from sqlalchemy.orm import Session
-from typing import List, Annotated
+from typing import Annotated, List
 
-from src.utils.db import get_db
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.category.controller import CategoryController
 from src.category.dtos import (
     CategoryCreateSchema,
     CategoryResponseSchema,
-    ResponseSchema
+    ResponseSchema,
 )
+from src.utils.db import get_db
 
 category_routes = APIRouter(prefix="/category")
 
-
-# 🔹 Create Category
 @category_routes.post(
     "/create",
     response_model=ResponseSchema[CategoryResponseSchema],
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
 )
-def create_category(body: CategoryCreateSchema, db: Session = Depends(get_db)):
-    return CategoryController.create_categories(body, db)
+async def create_category(
+    body: CategoryCreateSchema,
+    db: AsyncSession = Depends(get_db),
+):
+    return await CategoryController.create_categories(body, db)
 
 
-# 🔹 Get All Categories
-@category_routes.get(
+@category_routes.post(
     "/all",
-    response_model=ResponseSchema[List[CategoryResponseSchema]],
-    status_code=status.HTTP_200_OK
+    response_model=ResponseSchema[CategoryResponseSchema],
+    status_code=status.HTTP_201_CREATED,
 )
-def get_all_categories(db: Session = Depends(get_db)):
-    return CategoryController.get_all_categories(db)
 
-
-@category_routes.get(
-    "/{id}", response_model=ResponseSchema[List[CategoryResponseSchema]],
-    status_code=status.HTTP_200_OK
-)
-def get_category_by_id(id: int, category_code : Annotated[ int, Query(...)], db: Session = Depends(get_db)):
-    return CategoryController.get_cateogry_by_id(id, category_code, db)
-
+async def all_categories(
+    db: AsyncSession = Depends(get_db)):
+    return await CategoryController.get_all_categories(db)

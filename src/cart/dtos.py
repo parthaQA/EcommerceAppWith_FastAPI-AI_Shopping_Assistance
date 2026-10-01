@@ -1,4 +1,5 @@
 from src.products.dtos import ProductSchema
+from src.utils.enums import PaymentMode
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 from datetime import datetime
@@ -50,5 +51,11 @@ class DeliveryAddressSchema(BaseModel):
     address: str = Field(..., strict=True)
     pincode: int = Field(..., strict=True)
     city: str = Field(..., strict=True)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaymentPreferenceSchema(BaseModel):
+    payment_mode: str = Field(default=PaymentMode.COD, strict=True)
 
     model_config = ConfigDict(from_attributes=True)

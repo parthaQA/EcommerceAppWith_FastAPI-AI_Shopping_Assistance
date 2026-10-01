@@ -11,6 +11,7 @@ from src.ai_manager.tools import Tools
 from src.customers.controller import CustomerController
 from src.customers.dtos import CustomerLoginSchema
 from src.utils.db import Local_Session
+from src.utils.settings import settings
 from uuid import uuid4
 from pathlib import Path
 from nemoguardrails import LLMRails, RailsConfig
@@ -50,17 +51,28 @@ def get_rails_config():
 # Login & Initialization
 # -------------------------------------------------------
 customer_controller = CustomerController()
-db = Local_Session()
 
-login_response = asyncio.run(
-    customer_controller.customer_login_internal(
-        body=CustomerLoginSchema(
-            mobile=8828162737,
-            password="asdf#1234"
-        ),
-        db=db
-    )
-)
+
+async def _bootstrap_login():
+    if settings.AI_LOGIN_MOBILE is None or not settings.AI_LOGIN_PASSWORD:
+        raise RuntimeError(
+            "Set AI_LOGIN_MOBILE and AI_LOGIN_PASSWORD in .env for AI bootstrap login"
+        )
+
+    async with Local_Session() as session:
+        return await customer_controller.customer_login_internal(
+            body=CustomerLoginSchema(
+                mobile=settings.AI_LOGIN_MOBILE,
+                password=settings.AI_LOGIN_PASSWORD,
+            ),
+            db=session,
+        )
+
+
+login_response = asyncio.run(_bootstrap_login())
+
+# Long-lived async session for LangGraph tool DB access (process lifetime).
+db = Local_Session()
 
 langsmith = LangChainTracer(
     project_name="ecom-Agent_latest_v3",
@@ -69,26 +81,24 @@ langsmith = LangChainTracer(
 config = {
     "tags": [
         "shopping",
-        "search"
-        "add to cart"
-        "checkout"
-        "payment"
-        "order tracking"
+        "search",
+        "add to cart",
+        "checkout",
+        "payment",
+        "order tracking",
     ],
     "run_id": uuid4(),
-    "callbacks": [ MetricCallBacks(), langsmith],
+    "callbacks": [MetricCallBacks(), langsmith],
     "configurable": {
         "thread_id": login_response.get("customer_id"),
         "user": {
-            "access_token": login_response.get("access_token"),
             "customer_id": login_response.get("customer_id"),
-            "refresh_token": login_response.get("refresh_token"),
             "mobile": login_response.get("mobile"),
-        }
-    }
+        },
+    },
 }
 
-print("chat config : ", config)
+print("AI bootstrap login successful for customer_id:", login_response.get("customer_id"))
 
 
 

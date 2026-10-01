@@ -1,19 +1,19 @@
-from datetime import datetime
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, Field, field_validator
+
+from src.utils.settings import settings
 
 
 class CustomerSchema(BaseModel):
-    name: str
-    email: str
-    address: str
-    gender: str
+    name: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+    address: str = Field(min_length=1)
+    gender: str = Field(min_length=1)
     mobile: int
     pincode: int
-    is_active: bool = False
 
 
 class CustomerResponseSchema(BaseModel):
-    id : str
+    id: str
     name: str
     gender: str
     mobile: int
@@ -22,6 +22,15 @@ class CustomerResponseSchema(BaseModel):
 class CustomerRegisterSchema(BaseModel):
     mobile: int
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < settings.MIN_PASSWORD_LENGTH:
+            raise ValueError(
+                f"Password must be at least {settings.MIN_PASSWORD_LENGTH} characters"
+            )
+        return value
 
 
 class CustomerRegistrationResponseSchema(BaseModel):
@@ -32,3 +41,9 @@ class CustomerRegistrationResponseSchema(BaseModel):
 class CustomerLoginSchema(BaseModel):
     mobile: int
     password: str
+
+
+class SavedAddressSchema(BaseModel):
+    address: str = Field(..., strict=True)
+    pincode: int = Field(..., strict=True)
+    city: str = Field(..., strict=True)
