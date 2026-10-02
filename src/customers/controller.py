@@ -40,7 +40,7 @@ class CustomerController:
             gender=body.gender,
             address=body.address,
             mobile=body.mobile,
-            pincode=str(body.pincode),
+            pincode=body.pincode,
             is_active=False,
         )
         db.add(customer)
@@ -182,13 +182,13 @@ class CustomerController:
 
         # --- Refresh token (long-lived, stored + revocable) ---
         raw_refresh_token = Helper.generate_refresh_token()
-        refresh_expires_at = datetime.now(timezone.utc) + timedelta(
+        refresh_expires_at = datetime.utcnow() + timedelta(
             days=settings.REFRESH_TOKEN_EXP_DAYS
         )
 
         db.add(
             RefreshTokenModel(
-                mobile=registration.mobile,
+                mobile=str(registration.mobile),
                 token=Helper.hash_token(raw_refresh_token),  # store hash, not raw value
                 expires_at=refresh_expires_at,
             )

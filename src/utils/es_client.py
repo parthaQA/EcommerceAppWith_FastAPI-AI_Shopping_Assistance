@@ -12,6 +12,7 @@ INDEX_MAPPING = {
             "product_name": {"type": "text"},
             "product_price": {"type": "float"},
             "product_quantity": {"type": "integer"},
+            "unit": {"type": "keyword"},
         }
     }
 }
@@ -62,6 +63,12 @@ class ESClient:
             except Exception as e:
                 print("ES error detail:", getattr(e, "info", str(e)))
                 raise
+            return
+
+        await es.indices.put_mapping(
+            index=PRODUCT_INDEX,
+            properties={"unit": {"type": "keyword"}},
+        )
 
     @staticmethod
     async def index_product(es: AsyncElasticsearch, product) -> None:
@@ -74,6 +81,7 @@ class ESClient:
                 "product_name": product.product_name,
                 "product_price": product.product_price,
                 "product_quantity": product.product_quantity,
+                "unit": product.unit,
             },
             refresh="wait_for",
         )

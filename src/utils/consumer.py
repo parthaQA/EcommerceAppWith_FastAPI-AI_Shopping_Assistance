@@ -3,13 +3,16 @@ import json
 
 import aio_pika
 from sqlalchemy import select
+from sqlalchemy.orm import configure_mappers
 
+from src.category.models import CategoryModel
 from src.products.models import ProductModel
 from src.utils.db import Local_Session
 from src.utils.es_client import ESClient, connect_elasticsearch, get_es_client
 from src.utils.settings import settings
 
 RABBITMQ_URL = settings.RABBITMQ_URL
+configure_mappers()
 
 
 async def process_message(message):
@@ -34,6 +37,7 @@ async def process_message(message):
                     product_price=float(payload["product_price"]),
                     product_quantity=int(payload["product_quantity"]),
                     product_description=payload["product_description"],
+                    unit=payload["unit"],
                     category_id=payload["category_id"],
                 )
 

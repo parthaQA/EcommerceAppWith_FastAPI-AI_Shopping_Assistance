@@ -25,12 +25,12 @@ async def create_category(
     return await CategoryController.create_categories(body, db)
 
 
-@category_routes.post(
+@category_routes.get(
     "/all",
-    response_model=ResponseSchema[CategoryResponseSchema],
-    status_code=status.HTTP_201_CREATED,
+    response_model=ResponseSchema[List[CategoryResponseSchema]],
+    status_code=status.HTTP_200_OK,
 )
-
 async def all_categories(
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     return await CategoryController.get_all_categories(db)

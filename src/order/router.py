@@ -54,3 +54,16 @@ async def get_all_order_details_by_customer(
     db: AsyncSession = Depends(get_db),
 ):
     return await OrderController.get_all_order_details_by_customer(user, db)
+
+
+@order_routes.post(
+    path="/cancel",
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a pending order",
+)
+async def cancel_order(
+    order_id: Annotated[str, Query(...)],
+    user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await OrderController.cancel_order(user, order_id, db)

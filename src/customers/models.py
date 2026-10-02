@@ -14,7 +14,7 @@ class CustomerModel(BASE):
     mobile= Column(BigInteger)
     email = Column(String)
     address = Column(String)
-    pincode = Column(String)
+    pincode = Column(Integer)
     is_active = Column(Boolean, default=False)
     created_date =  Column(
     DateTime(timezone=True),
@@ -46,7 +46,7 @@ class SavedAddressModel(BASE):
     id = Column(Integer, primary_key=True, unique=True, autoincrement=True, nullable=False)
     customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
     address = Column(String, nullable=False)
-    pincode = Column(String, nullable=False)
+    pincode = Column(Integer, nullable=False)
     city = Column(String, nullable=False)
     created_date = Column(
         DateTime(timezone=True),

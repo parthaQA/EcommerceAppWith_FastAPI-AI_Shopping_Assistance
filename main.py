@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.cart.router import cart_routes
 from src.category.router import category_routes
 from src.customers.router import customer_routes
+from src.order.controller import auto_accept_pending_orders
 from src.order.router import order_routes
 from src.products.router import product_routes
 from src.utils.db import BASE, engine
@@ -47,7 +49,15 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
         raise
 
+    accept_task = asyncio.create_task(auto_accept_pending_orders())
+
     yield
+
+    accept_task.cancel()
+    try:
+        await accept_task
+    except asyncio.CancelledError:
+        pass
 
     print("Shutting down FastAPI application...")
     await RabbitMQ.close()

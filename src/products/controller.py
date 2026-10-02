@@ -56,6 +56,7 @@ class ProductController:
             product_price=body.product_price,
             product_quantity=body.product_quantity,
             product_description=body.product_description,
+            unit=body.unit,
             category_id=category.id,
         )
         db.add(product)
@@ -146,6 +147,10 @@ class ProductController:
                 if quantity <= 0:
                     raise ValueError("Quantity cannot be 0 or negative")
 
+                unit = row.get("unit", "").strip()
+                if not unit:
+                    raise ValueError("Unit is required")
+
                 product_description = row.get("product_description", "").strip()
 
                 await RabbitMQ.publish(
@@ -154,6 +159,7 @@ class ProductController:
                         "product_price": price,
                         "product_quantity": quantity,
                         "product_description": product_description,
+                        "unit": unit,
                         "category_id": category_id,
                     }
                 )
@@ -206,6 +212,7 @@ class ProductController:
             "product_description": get_by_product_id.product_description,
             "product_price": get_by_product_id.product_price,
             "product_quantity": get_by_product_id.product_quantity,
+            "unit": get_by_product_id.unit,
         }
         await redis_client.set(cache_data, json.dumps(product_data), ex=60)
         return product_data

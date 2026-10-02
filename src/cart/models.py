@@ -68,7 +68,7 @@ class DeliveryAddressModel(BASE):
     )
     cart_id = Column(String, ForeignKey("cart.cart_id"))
     address = Column(String, nullable=False)
-    pincode = Column(String, nullable=False)
+    pincode = Column(Integer, nullable=False)
     city = Column(String, nullable=False)
     created_date = Column(DateTime, default=utcnow_naive, nullable=False)
     modified_date = Column(

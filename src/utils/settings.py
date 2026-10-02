@@ -1,10 +1,12 @@
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    DB_CONNECTION: str
+    DB_CONNECTION: str = Field(
+        validation_alias=AliasChoices("DB_CONNECTION", "DATABASE_URL")
+    )
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     EXP_TIME: int
@@ -25,6 +27,7 @@ class Settings(BaseSettings):
     AI_LOGIN_MOBILE: int | None = None
     AI_LOGIN_PASSWORD: str | None = None
     MIN_PASSWORD_LENGTH: int = 8
+    ORDER_AUTO_ACCEPT_MINUTES: int = 5
 
     @property
     def access_token_minutes(self) -> int:

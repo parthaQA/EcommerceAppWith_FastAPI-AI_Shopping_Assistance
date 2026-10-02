@@ -12,6 +12,7 @@ class ProductModel(BASE):
     product_description = Column(String(200), nullable=False)
     product_price = Column(Float, nullable=False)
     product_quantity = Column(Integer, nullable=False)
+    unit = Column(String(50), nullable=True)
     category_id = Column(Integer, ForeignKey("category.id"),
                          nullable=False)
     created_date = Column(DateTime, default=datetime.utcnow())
