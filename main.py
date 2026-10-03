@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.cart.router import cart_routes
 from src.category.router import category_routes
 from src.customers.router import customer_routes
-from src.order.controller import auto_accept_pending_orders
+from src.order.order_service import auto_accept_pending_orders
 from src.order.router import order_routes
 from src.products.router import product_routes
 from src.utils.db import BASE, engine

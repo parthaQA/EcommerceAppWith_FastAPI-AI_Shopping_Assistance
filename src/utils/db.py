@@ -29,3 +29,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+from contextlib import asynccontextmanager
+
+get_db_ctx = asynccontextmanager(get_db)

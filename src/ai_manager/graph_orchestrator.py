@@ -1,15 +1,14 @@
 import json
 import time
 from typing import Annotated, TypedDict
-
-from cohere.manually_maintained.cohere_aws import rerank
 from langchain_core.outputs import Generation
+from langchain_core.runnables import RunnableConfig
 from langsmith import traceable
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition
-from src.ai_manager.ai_manager import get_rails_config, tools_by_name, llm_chat, llm_with_tools, config
+from src.ai_manager.ai_manager import get_rails_config, llm_with_tools, build_chat_model, tools
 from src.ai_manager.db_manager import DBManager
 from src.ai_manager.prompt import PRODUCT_SEARCH_SYSTEM_PROMPT
 from langchain_core.messages import (
@@ -19,8 +18,7 @@ from langchain_core.messages import (
 )
 from langgraph.cache.memory import InMemoryCache
 from langgraph.types import CachePolicy
-
-from uuid import uuid4
+from src.ai_manager.agent_config import RunnableConfigBuilder
 
 from src.ai_manager.utils import Utils
 
@@ -43,6 +41,7 @@ class State(TypedDict):
 
 
 class GraphOrchestrator:
+
 
 
     MAX_HISTORY=1
@@ -244,10 +243,10 @@ class GraphOrchestrator:
         ########################################################
 
         if intent == "product_info" and matched_product:
-            model = llm_chat
+            model = build_chat_model()
 
         elif intent == "rag_node":
-            model = llm_chat
+            model = build_chat_model()
 
         else:
             model = llm_with_tools
@@ -368,28 +367,26 @@ class GraphOrchestrator:
 
     @staticmethod
     @traceable
-    def custom_tool_node(state: State):
+    def custom_tool_node(state: State, config: RunnableConfig):
 
         last_ai = state["messages"][-1]
-
         outputs = []
-
         updates = {}
 
         for tool_call in last_ai.tool_calls:
-
-            tool = tools_by_name[tool_call["name"]]
-
+            # 1. Dynamically find and invoke your tool (adjust lookup logic based on your tool binding setup)
+            tool = next(t for t in tools if t.name == tool_call["name"])
             tool_args = dict(tool_call["args"])
-
-            # Inject graph state manually
             tool_args["state"] = state
 
             result = tool.invoke(tool_args)
 
+            # 2. Extract content specifically meant for the LLM context
+            llm_content = json.dumps(result["raw_response"]) if "raw_response" in result else json.dumps(result)
+
             outputs.append(
                 ToolMessage(
-                    content=json.dumps(result),
+                    content=llm_content,
                     tool_call_id=tool_call["id"],
                     name=tool_call["name"]
                 )
@@ -400,23 +397,18 @@ class GraphOrchestrator:
             ###################################################
 
             if tool_call["name"] == "search_product":
-
-                updates["search_results"] = result["products"]
+                updates["search_results"] = result["search_results"]
                 updates["product_memory"] = result["product_memory"]
                 updates["search_completed"] = True
-
             elif tool_call["name"] == "add_product_to_cart":
-
                 updates["cart"] = result["data"]
-
             elif tool_call["name"] == "get_cart":
-
                 updates["cart_details"] = result["data"]
 
-        return {
-            "messages": outputs,
-            **updates
-        }
+            return {
+                "messages": outputs,
+                **updates
+            }
 
     @staticmethod
     def after_tool_router(state: State):
@@ -454,11 +446,11 @@ class GraphOrchestrator:
 
     @staticmethod
     @traceable
-    def memory_write_node(state: State):
+    def memory_write_node(state: State, config: RunnableConfig):
 
         query = state["messages"][-1].content
 
-        result = DBManager.insert_into_mem0_db(messages=query, customer_id=config["configurable"]["thread_id"])
+        result = DBManager.insert_into_mem0_db(messages=query, customer_id=Utils.get_customer_id(config))
         #
         # retrived_messages = DBManager.retrieve_from_mem0_db(customer_id=config["configurable"]["thread_id"])
 
@@ -474,10 +466,10 @@ class GraphOrchestrator:
 
     @staticmethod
     @traceable
-    def memory_read_node(state: State):
+    def memory_read_node(state: State, config: RunnableConfig):
 
         query = state["messages"][-1].content
-        customer_id = config["configurable"]["thread_id"]
+        customer_id = Utils.get_customer_id(config)
 
         retrieved_messages = DBManager.retrieve_from_mem0_db(
             customer_id=customer_id,

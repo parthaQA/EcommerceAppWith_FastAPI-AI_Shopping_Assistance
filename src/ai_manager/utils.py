@@ -6,6 +6,8 @@ import hashlib
 import json
 from dotenv import load_dotenv
 import cohere
+from fastapi import HTTPException
+from langchain_core.runnables import RunnableConfig
 
 load_dotenv()
 
@@ -53,3 +55,13 @@ class Utils:
         RAG_PIPELINE_VERSION = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]
         print("rag pipeline version :",RAG_PIPELINE_VERSION)
         return RAG_PIPELINE_VERSION
+
+
+
+    @staticmethod
+    def get_customer_id(config: RunnableConfig) -> str:
+        try:
+            return str(config["configurable"]["user"]["customer_id"])
+        except (KeyError, TypeError):
+            raise HTTPException(401, "Authentication required")
+

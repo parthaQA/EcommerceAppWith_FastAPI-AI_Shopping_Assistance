@@ -6,9 +6,9 @@ from langgraph.prebuilt import InjectedState
 from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.ai_manager.dtos import build_search_response
-from src.cart.controller import CartController
+from src.ai_manager.utils import Utils
+from src.cart.cart_service import CartService
 from src.cart.dtos import (
     CartProductSchema,
     CartProductsResponseSchema,
@@ -19,76 +19,74 @@ from src.customers.models import CustomerModel
 from src.products.controller import ProductController
 from src.products.models import ProductModel
 from langgraph.types import interrupt
-from src.utils.auth import AuthUser
+
+from src.products.product_service import ProductService
+from src.utils.db import get_db_ctx
 from src.utils.es_client import get_es_client
 from src.utils.helper import Helper
+import json
+from typing import Annotated
+
+from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool, InjectedToolCallId
+from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
+from langsmith import traceable
+
+from src.utils.settings import settings
 
 
 class Tools:
 
+    @tool
+    @traceable(name="search_product")
     @staticmethod
-    def get_search_product_tool(customer_id, db: AsyncSession):
-        """Search products by name"""
-
-        @tool
-        @traceable
-        async def search_product(
+    async def search_product(
             name: str,
+            config: RunnableConfig,
             state: Annotated[dict, InjectedState],
-        ) -> dict:
-            """
-            Search grocery products by product name.
+            tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> Command:
+        """Search grocery products by product name.
 
-            Use this tool whenever the user asks:
-            - Find products
-            - Check availability
-            - Show prices
+        Use this tool when the user wants to:
+        - Find products
+        - Check availability
+        - See prices
 
-            Returns:
-            Product name
-            Price
-            Availability
-            """
-            print(f"Customer={customer_id}")
-            print("name : ", name)
+        Args:
+            name: Product name or keyword to search for, e.g. "milk" or "basmati rice".
+        """
+        customer_id = Utils.get_customer_id(config)
 
-            state_customer_id = state.get("customer_id")
-            if not state_customer_id or str(state_customer_id) != str(customer_id):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Customer ID and token mismatch",
-                )
-
-            product_details = await ProductController.search_product_by_name(
-                name,
-                db,
-                get_es_client(),
-                AuthUser(customer_id=str(customer_id)),
+        async with get_db_ctx() as db:
+            products = await ProductService.search_by_name(
+                name, customer_id, db, get_es_client()
             )
 
-            structured_products = [
-                {
-                    "name": p.product_name,
-                    "price": p.product_price,
-                    "available": p.product_quantity > 0,
-                    "quantity": p.product_quantity,
-                    "product_id": p.product_id,
-                }
-                for p in product_details["data"]
-            ]
-
-            state["search_results"] = structured_products
-            memory = state.get("product_memory", {})
-            for p in structured_products:
-                memory[p["name"].lower()] = p
-            state["product_memory"] = memory
-
-            return {
-                **build_search_response(name, structured_products),
-                "product_memory": memory,
+        structured = [
+            {
+                "name": p.product_name,
+                "price": p.product_price,
+                "available": p.product_quantity > 0,
+                "quantity": p.product_quantity,
+                "product_id": p.product_id,
             }
+            for p in products
+        ]
 
-        return search_product
+        # Merge into existing memory without mutating the old dict
+        memory = {
+            **state.get("product_memory", {}),
+            **{p["name"].lower(): p for p in structured},
+        }
+
+        return {
+            "search_results": structured,
+            "product_memory": memory,
+            "raw_response": build_search_response(name, structured[:settings.PRODUCT_SEARCH_RESULTS_TO_LLM])
+        }
 
     @staticmethod
     def add_product_to_cart_llm(customer_id, db: AsyncSession):
@@ -229,11 +227,11 @@ class Tools:
             customer_id = state.get("customer_id")
             if not customer_id:
                 raise HTTPException(status_code=401, detail="Customer not authenticated")
-            cart_details = await CartController.get_cart_for_checkout(
-                AuthUser(customer_id=str(customer_id)),
+            cart_products = await CartService.get_cart_for_checkout(
+                str(customer_id),
                 cart_id,
                 db,
             )
-            return {"data": cart_details["data"]}
+            return {"data": cart_products}
 
         return get_cart

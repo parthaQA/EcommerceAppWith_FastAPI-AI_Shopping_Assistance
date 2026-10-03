@@ -10,9 +10,9 @@ import os
 from dotenv import load_dotenv
 from mem0 import Memory
 
-from src.ai_manager.ai_manager import llm_chat
+from src.ai_manager.ai_manager import build_chat_model
 from src.ai_manager.mem0_config import config
-from src.utils.redis import REDIS_URL
+from src.utils.settings import settings
 
 
 class DBManager:
@@ -132,6 +132,7 @@ class DBManager:
             ("system", DBManager.REWRITE_SYSTEM_PROMPT),
             ("human", "Conversation history:\n{history}\n\nOriginal query: {query}\n\nRewritten query:")
         ])
+        llm_chat = build_chat_model()
 
         chain = prompt | llm_chat
         response = chain.invoke({
@@ -158,7 +159,7 @@ class DBManager:
     def get_rag_cache():
         if DBManager._rag_cache is None:
             DBManager._rag_cache = RedisSemanticCache(
-                redis_url=REDIS_URL,
+                redis_url=DBManager.REDIS_URL,
                 embeddings=DBManager.embedding_model,
                 distance_threshold=0.08,
                 name="rag_context_cache",

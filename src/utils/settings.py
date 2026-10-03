@@ -1,12 +1,19 @@
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+ENV_PATH = BASE_DIR / ".env"
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    model_config = SettingsConfigDict(env_file=str(ENV_PATH), extra="ignore")
 
     DB_CONNECTION: str = Field(
         validation_alias=AliasChoices("DB_CONNECTION", "DATABASE_URL")
     )
+
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     EXP_TIME: int
@@ -24,8 +31,6 @@ class Settings(BaseSettings):
     CSV_MAX_BYTES: int = 1_048_576
     CSV_MAX_ROWS: int = 500
     PRODUCT_LIST_MAX_LIMIT: int = 100
-    AI_LOGIN_MOBILE: int | None = None
-    AI_LOGIN_PASSWORD: str | None = None
     MIN_PASSWORD_LENGTH: int = 8
     ORDER_AUTO_ACCEPT_MINUTES: int = 5
 
