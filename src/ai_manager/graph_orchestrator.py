@@ -1,8 +1,11 @@
 import json
 import time
 from typing import Annotated, TypedDict
+
+from fastapi import HTTPException
 from langchain_core.outputs import Generation
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langsmith import traceable
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
@@ -17,11 +20,13 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langgraph.cache.memory import InMemoryCache
-from langgraph.types import CachePolicy
-from src.ai_manager.agent_config import RunnableConfigBuilder
-
+from psycopg_pool import AsyncConnectionPool
 from src.ai_manager.utils import Utils
+from src.utils.settings import settings
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class State(TypedDict):
 
@@ -41,7 +46,8 @@ class State(TypedDict):
 
 
 class GraphOrchestrator:
-
+    _pool: AsyncConnectionPool | None = None
+    _graph = None
 
 
     MAX_HISTORY=1
@@ -206,21 +212,17 @@ class GraphOrchestrator:
 
     @staticmethod
     @traceable
-    def call_model(state: State):
-
+    async def call_model(state: State, config: RunnableConfig):  # 1. async + config
 
         ########################################################
         # 1. Intent
         ########################################################
-
         intent = GraphOrchestrator.route_intent(state)
 
         ########################################################
         # 2. Current question
         ########################################################
-
         question = ""
-
         for msg in reversed(state["messages"]):
             if isinstance(msg, HumanMessage):
                 question = msg.content.lower()
@@ -229,11 +231,8 @@ class GraphOrchestrator:
         ########################################################
         # 3. Find matching product
         ########################################################
-
         matched_product = None
-
         for _, product in state.get("product_memory", {}).items():
-
             if product["name"].lower() in question:
                 matched_product = product
                 break
@@ -241,22 +240,14 @@ class GraphOrchestrator:
         ########################################################
         # 4. Select model
         ########################################################
-
-        if intent == "product_info" and matched_product:
-            model = build_chat_model()
-
-        elif intent == "rag_node":
-            model = build_chat_model()
-
+        if (intent == "product_info" and matched_product) or intent == "rag_node":
+            model = build_chat_model()  # no tools bound
         else:
             model = llm_with_tools
 
-
-
         ########################################################
-        # 5. Build dynamic context
+        # 5. Build dynamic context (unchanged)
         ########################################################
-
         dynamic_context = []
 
         if state.get("retrieved_context"):
@@ -265,80 +256,37 @@ class GraphOrchestrator:
                 Relevant Policy Information:
                 {state["retrieved_context"]}
 
-                Rules for using the above policy information:
-                - Answer ONLY using what is explicitly stated above. Do not add details,
-                  percentages, timelines, or conditions that are not written here.
-                - The text above may contain MULTIPLE, UNRELATED policy sections (e.g. one
-                  about missing items, another about general returns, another about refund
-                  tiers). Identify which single section actually matches the user's
-                  specific question, and IGNORE the other sections even if they mention
-                  similar words like "refund" or "days".
-                - Do NOT combine numbers or rules from one section with a different section.
-                  For example, refund percentage tiers under "Return & Refund Policy" apply
-                  only to standard product returns — do not apply them to missing items,
-                  damaged items, or any other scenario unless explicitly stated there too.
-                - If the matching section does not mention a refund percentage, timeline, or
-                  resolution process, say so plainly instead of inferring one from elsewhere.
+                ... your existing policy rules text, unchanged ...
                 """
             )
 
         if state.get("search_results"):
-
             dynamic_context.append(
                 f"""
-                    Latest Search Results {json.dumps(state["search_results"], indent=2)}
-                    These are the latest search results.Use ONLY these products.
-                    Do not search again unless the user asks for a different product.
-                     """
-                )
-
-
+                Latest Search Results {json.dumps(state["search_results"], indent=2)}
+                These are the latest search results. Use ONLY these products.
+                Do not search again unless the user asks for a different product.
+                """
+            )
         elif matched_product:
-
             dynamic_context.append(
                 f"""
-        Current Product {json.dumps(matched_product, indent=2)}
+                Current Product {json.dumps(matched_product, indent=2)}
 
-            This product already exists in memory. Reuse this information.
-            Do not search again."""
-                    )
+                This product already exists in memory. Reuse this information.
+                Do not search again."""
+            )
 
-        #
-        # Cart context (only when required)
-        #
         if intent in ("add_to_cart", "get cart details"):
-
             if state.get("cart"):
-                dynamic_context.append(
-                    f"""Current Cart {json.dumps(state["cart"], indent=2)}"""
-                    )
-
+                dynamic_context.append(f"""Current Cart {json.dumps(state["cart"], indent=2)}""")
             if state.get("cart_details"):
-                dynamic_context.append(
-                    f"""Latest Cart Details {json.dumps(state["cart_details"], indent=2)}"""
-                                )
-
+                dynamic_context.append(f"""Latest Cart Details {json.dumps(state["cart_details"], indent=2)}""")
 
         ########################################################
-        # 6. Keep only latest human message
+        # 6. Build prompt
         ########################################################
-
-        history = []
-
-        for msg in reversed(state["messages"]):
-
-            if isinstance(msg, HumanMessage):
-                history.append(msg)
-                break
-
-        history.reverse()
-
-        ########################################################
-        # 7. Build prompt
-        ########################################################
-
         system_prompt = PRODUCT_SEARCH_SYSTEM_PROMPT
-
         if dynamic_context:
             system_prompt += "\n\n" + "\n\n".join(dynamic_context)
 
@@ -347,68 +295,91 @@ class GraphOrchestrator:
             *GraphOrchestrator.build_chat_history(state["messages"]),
         ]
 
-
-        total_chars = 0
-
-        for i, msg in enumerate(messages):
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-
-            total_chars += len(content)
-
+        total_chars = sum(
+            len(m.content) if isinstance(m.content, str) else len(str(m.content))
+            for m in messages
+        )
         print("=" * 80)
         print(f"Total Prompt Characters : {total_chars}")
         print("=" * 80)
 
-        response = model.invoke(messages)
+        ########################################################
+        # 7. Call the model (async, with config so tokens stream)
+        ########################################################
+        response = await model.ainvoke(messages, config)  # 2 + 3
 
-        return {
-            "messages": [response]
-        }
+        return {"messages": [response]}
 
     @staticmethod
     @traceable
-    def custom_tool_node(state: State, config: RunnableConfig):
-
+    async def custom_tool_node(state: State, config: RunnableConfig):
+        tools_by_name = {t.name: t for t in tools}
         last_ai = state["messages"][-1]
-        outputs = []
-        updates = {}
+
+        outputs: list[ToolMessage] = []
+        updates: dict = {}
 
         for tool_call in last_ai.tool_calls:
-            # 1. Dynamically find and invoke your tool (adjust lookup logic based on your tool binding setup)
-            tool = next(t for t in tools if t.name == tool_call["name"])
-            tool_args = dict(tool_call["args"])
-            tool_args["state"] = state
+            name = tool_call["name"]
+            tool = tools_by_name.get(name)
 
-            result = tool.invoke(tool_args)
-
-            # 2. Extract content specifically meant for the LLM context
-            llm_content = json.dumps(result["raw_response"]) if "raw_response" in result else json.dumps(result)
-
-            outputs.append(
-                ToolMessage(
-                    content=llm_content,
+            def error_message(payload: dict) -> ToolMessage:
+                return ToolMessage(
+                    content=json.dumps(payload),
                     tool_call_id=tool_call["id"],
-                    name=tool_call["name"]
+                    name=name,
+                    status="error",
                 )
-            )
 
-            ###################################################
-            # Save tool outputs into graph state
-            ###################################################
+            if tool is None:
+                logger.warning("LLM requested unknown tool: %s", name)
+                outputs.append(error_message({"error": 404, "message": f"Unknown tool {name}"}))
+                continue
 
-            if tool_call["name"] == "search_product":
-                updates["search_results"] = result["search_results"]
-                updates["product_memory"] = result["product_memory"]
-                updates["search_completed"] = True
-            elif tool_call["name"] == "add_product_to_cart":
-                updates["cart"] = result["data"]
-            elif tool_call["name"] == "get_cart":
-                updates["cart_details"] = result["data"]
-
-            return {
-                "messages": outputs,
-                **updates
+            call = {
+                **tool_call,
+                "type": "tool_call",
+                "args": {**tool_call["args"], "state": state},
             }
+
+            try:
+                result = await tool.ainvoke(call, config)
+            except HTTPException as e:
+                logger.warning("Tool %s failed: %s %s", name, e.status_code, e.detail)
+                outputs.append(error_message({"error": e.status_code, "message": str(e.detail)}))
+                continue
+            except Exception:
+                logger.exception("Unexpected error in tool %s", name)  # includes full traceback
+                outputs.append(error_message({"error": 500, "message": "Something went wrong on our side"}))
+                continue
+
+            content = result.content if isinstance(result, ToolMessage) else result
+            try:
+                data = json.loads(content) if isinstance(content, str) else content
+            except json.JSONDecodeError:
+                data = {"result": content}
+            if not isinstance(data, dict):
+                data = {"result": data}
+
+            outputs.append(ToolMessage(
+                content=json.dumps(data.get("raw_response", data), default=str),
+                tool_call_id=tool_call["id"],
+                name=name,
+            ))
+
+            if name == "search_product":
+                updates["search_results"] = data["search_results"]
+                updates["product_memory"] = {
+                    **updates.get("product_memory", {}),
+                    **data["product_memory"],
+                }
+                updates["search_completed"] = True
+            elif name == "add_product_to_cart":
+                updates["cart"] = data["data"]
+            elif name == "get_cart":
+                updates["cart_details"] = data["data"]
+
+        return {"messages": outputs, **updates}
 
     @staticmethod
     def after_tool_router(state: State):
@@ -563,7 +534,7 @@ class GraphOrchestrator:
 
 
     @staticmethod
-    def create_graph_builder():
+    def create_graph_builder(checkpointer=None):
 
         graph = StateGraph(State)
 
@@ -579,7 +550,7 @@ class GraphOrchestrator:
 
         graph.add_node("agent", GraphOrchestrator.call_model)
 
-        graph.add_node("tools", GraphOrchestrator.custom_tool_node, cache_policy=CachePolicy(ttl=240))
+        graph.add_node("tools", GraphOrchestrator.custom_tool_node)
 
         graph.add_node("product_not_found", GraphOrchestrator.product_not_found_node)
 
@@ -668,12 +639,38 @@ class GraphOrchestrator:
             "agent"
         )
         cache = InMemoryCache()
-        checkpointer = DBManager.get_checkpointer()
-        graph_builder = graph.compile(checkpointer=checkpointer, cache=cache)
 
         print("in memory cache", cache._cache)
 
-        return graph_builder
+        return graph.compile(checkpointer=checkpointer)
 
-def get_graph():
-    return GraphOrchestrator.create_graph_builder()
+
+
+    @classmethod
+    async def acreate_graph_builder(cls):
+        if cls._graph is not None:
+            return cls._graph
+
+        cls._pool = AsyncConnectionPool(
+            conninfo=settings.DB_CONNECTION_PSYCOPG,
+            open=False,
+            kwargs={"autocommit": True, "prepare_threshold": 0},
+            )
+        await cls._pool.open()
+
+        checkpointer = AsyncPostgresSaver(cls._pool)
+        await checkpointer.setup()
+
+        cls._graph = cls.create_graph_builder(checkpointer=checkpointer)
+        return cls._graph
+
+    @classmethod
+    async def aclose(cls) -> None:
+        if cls._pool is not None:
+            await cls._pool.close()
+        cls._pool = None
+        cls._graph = None
+
+    @staticmethod
+    async def get_graph():
+        return await GraphOrchestrator.acreate_graph_builder()

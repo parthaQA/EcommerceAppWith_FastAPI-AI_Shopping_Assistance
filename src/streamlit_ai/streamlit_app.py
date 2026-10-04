@@ -133,7 +133,7 @@ class StreamlitShoppingAssistant:
         """Create the compiled graph once, on the shared loop."""
         if "graph_builder" not in st.session_state:
             st.session_state.graph_builder = run_async(
-                GraphOrchestrator.acreate_graph_builder()
+                GraphOrchestrator.create_graph_builder()
             )
         return st.session_state.graph_builder
 

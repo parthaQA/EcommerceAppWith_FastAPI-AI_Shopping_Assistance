@@ -34,7 +34,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from langsmith import traceable
 
-from src.utils.settings import settings
+from src.ai_manager.settings import ai_settings
 
 
 class Tools:
@@ -85,7 +85,7 @@ class Tools:
         return {
             "search_results": structured,
             "product_memory": memory,
-            "raw_response": build_search_response(name, structured[:settings.PRODUCT_SEARCH_RESULTS_TO_LLM])
+            "raw_response": build_search_response(name, structured[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM])
         }
 
     @staticmethod
@@ -235,3 +235,7 @@ class Tools:
             return {"data": cart_products}
 
         return get_cart
+
+    @classmethod
+    def all(cls) -> list:
+        return [cls.search_product]

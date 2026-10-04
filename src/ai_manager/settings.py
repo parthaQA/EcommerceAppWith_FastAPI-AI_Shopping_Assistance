@@ -1,16 +1,22 @@
-# src/utils/settings.py  (add these fields to your existing Settings class)
-from pydantic_settings import BaseSettings
+# src/ai_manager/settings.py
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"   # project root, same file as app settings
 
 
-class Settings(BaseSettings):
+class AISettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        extra="ignore",               # .env also holds DB_CONNECTION, REDIS_URL, etc.
+    )
 
     # Chat model
     LLM_MODEL: str
     LLM_PROVIDER: str = "ollama"
     LLM_BASE_URL: str
     LLM_STREAMING: bool = True
-    AI_LOGIN_MOBILE: int | None = None
-    AI_LOGIN_PASSWORD: str | None = None
+
     # Guardrails
     GROQ_API_KEY: str
     GUARDRAIL_MODEL: str
@@ -24,11 +30,10 @@ class Settings(BaseSettings):
     AGENT_TAGS: list[str] = ["shopping"]
 
     # Tracing
-    LANGSMITH_PROJECT: str
+    LANGSMITH_PROJECT: str = "ecom-agent"
 
-    # Search
-    PRODUCT_SEARCH_SIZE: int = 50
+    # What the LLM sees
     PRODUCT_SEARCH_RESULTS_TO_LLM: int = 10
 
 
-settings = Settings()
+ai_settings = AISettings()

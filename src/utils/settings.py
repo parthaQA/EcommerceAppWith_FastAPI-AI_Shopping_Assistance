@@ -48,4 +48,13 @@ class Settings(BaseSettings):
             if origin.strip()
         ]
 
+    @property
+    def DB_CONNECTION_PSYCOPG(self) -> str:
+        url = self.DB_CONNECTION
+        for prefix in ("postgresql+asyncpg://", "postgresql+psycopg2://",
+                       "postgresql+psycopg://", "postgres://"):
+            if url.startswith(prefix):
+                return "postgresql://" + url[len(prefix):]
+        return url
+
 settings = Settings()

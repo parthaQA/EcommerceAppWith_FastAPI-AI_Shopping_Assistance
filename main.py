@@ -4,6 +4,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.ai_manager.graph_orchestrator import GraphOrchestrator
 from src.cart.router import cart_routes
 from src.category.router import category_routes
 from src.customers.router import customer_routes
@@ -15,7 +16,14 @@ from src.utils.es_client import close_elasticsearch, connect_elasticsearch
 from src.utils.rabbitmq import RabbitMQ
 from src.utils.redis import redis_client
 from src.utils.settings import settings
+from src.ai_manager.router import router as chat_routes
 
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,6 +57,19 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
         raise
 
+    # Graph before the background task, so a failure here leaves nothing running
+    try:
+        app.state.graph = await GraphOrchestrator.acreate_graph_builder()
+        print("LangGraph initialised successfully")
+    except Exception as e:
+        print(f"LangGraph initialisation failed: {e}")
+        await GraphOrchestrator.aclose()
+        await close_elasticsearch()
+        await RabbitMQ.close()
+        await redis_client.close()
+        await engine.dispose()
+        raise
+
     accept_task = asyncio.create_task(auto_accept_pending_orders())
 
     yield
@@ -60,6 +81,7 @@ async def lifespan(app: FastAPI):
         pass
 
     print("Shutting down FastAPI application...")
+    await GraphOrchestrator.aclose()          # first, before the rest
     await RabbitMQ.close()
     await redis_client.close()
     await close_elasticsearch()
@@ -82,6 +104,7 @@ app.include_router(category_routes)
 app.include_router(customer_routes)
 app.include_router(order_routes)
 app.include_router(product_routes)
+app.include_router(chat_routes)
 
 if __name__ == "__main__":
     import uvicorn

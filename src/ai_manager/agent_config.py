@@ -3,7 +3,7 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tracers import LangChainTracer
 from src.ai_manager.callbacks import MetricCallBacks
-from src.utils.settings import settings
+from src.ai_manager.settings import ai_settings
 
 
 class RunnableConfigBuilder:
@@ -15,11 +15,11 @@ class RunnableConfigBuilder:
         thread_id = f"{customer_id}:{conversation_id}" if conversation_id else str(customer_id)
         return {
             "run_id": uuid4(),
-            "tags": settings.AGENT_TAGS,
-            "recursion_limit": settings.AGENT_RECURSION_LIMIT,
+            "tags": ai_settings.AGENT_TAGS,
+            "recursion_limit": ai_settings.AGENT_RECURSION_LIMIT,
             "callbacks": [
                 MetricCallBacks(),
-                LangChainTracer(project_name=settings.LANGSMITH_PROJECT),
+                LangChainTracer(project_name=ai_settings.LANGSMITH_PROJECT),
             ],
             "configurable": {
                 "thread_id": thread_id,

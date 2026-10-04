@@ -38,19 +38,19 @@ class DBManager:
     - Preserve the original intent exactly. Do NOT answer the question or add new information not implied by the conversation.
     - Output ONLY the rewritten query text. No preamble, no quotes, no explanation."""
 
-    DATABASE_URL = os.getenv("DB_CONNECTION")
-    RAG_DATABASE_URL = os.getenv("RAG_DB_URL")
+    # DATABASE_URL = os.getenv("DB_CONNECTION")
+    # RAG_DATABASE_URL = os.getenv("RAG_DB_URL")
+    #
+    # pool = ConnectionPool(conninfo=str(DATABASE_URL),
+    #                           kwargs={"autocommit": True},
+    #                           )
+    #
+    # checkpointer = PostgresSaver(pool)
 
-    pool = ConnectionPool(conninfo=str(DATABASE_URL),
-                              kwargs={"autocommit": True},
-                              )
 
-    checkpointer = PostgresSaver(pool)
-
-
-    @classmethod
-    def get_checkpointer(cls):
-        return cls.checkpointer.setup()
+    # @classmethod
+    # def get_checkpointer(cls):
+    #     return cls.checkpointer.setup()
 
 
 
