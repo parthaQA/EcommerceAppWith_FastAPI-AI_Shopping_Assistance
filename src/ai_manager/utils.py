@@ -7,26 +7,18 @@ import json
 from dotenv import load_dotenv
 import cohere
 from fastapi import HTTPException
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 
 load_dotenv()
 
 cohere_api_key = os.getenv("COHERE_API_KEY")
 
+
+
 class Utils:
-#
-#     @staticmethod
-#     def normalize_memory(query: str) -> str:
-#
-#         prompt = create_intent_prompt(query)
-#
-#         response = llm_chat.invoke(prompt)
-#
-#         return response.content.strip()
 
-
-
-
+    _MAX_HISTORY = 4
 
     @staticmethod
     def rerank_query_response(query, document):
@@ -65,3 +57,18 @@ class Utils:
         except (KeyError, TypeError):
             raise HTTPException(401, "Authentication required")
 
+    @staticmethod
+    def build_chat_history(messages):
+        last_human = max(
+            (i for i, m in enumerate(messages) if isinstance(m, HumanMessage)),
+            default=0,
+        )
+        current_turn = messages[last_human:]
+
+        previous = [
+            m for m in messages[:last_human]
+            if isinstance(m, (HumanMessage, AIMessage))
+               and not getattr(m, "tool_calls", None)
+               and str(m.content).strip()
+        ]
+        return previous[-Utils._MAX_HISTORY:] + current_turn

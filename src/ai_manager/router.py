@@ -2,7 +2,7 @@ import json
 from pprint import pformat
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from src.ai_manager.agent_config import RunnableConfigBuilder
 from src.ai_manager.dtos import ChatRequest, ChatResponse
 from src.utils.auth import AuthUser, get_current_user
@@ -47,6 +47,9 @@ async def chat_stream(
                 config=config,
                 stream_mode=["messages", "updates"],
             ):
+                print("MODE: %s", mode)
+                print("DATA TYPE: %s", type(data))
+                print("DATA: %s", pformat(data))
                 # ---------- Console only: every node's output ----------
                 if mode == "updates":
                     for node, update in data.items():
@@ -54,7 +57,10 @@ async def chat_stream(
 
                 if mode == "messages":
                     chunk, metadata = data
-                    if chunk.content and metadata.get("langgraph_node") == "agent":
+                    node = metadata.get("langgraph_node")
+
+                    # Agent tokens stream; rails and product_not_found send one full message
+                    if node in ("agent", "rails", "product_not_found") and chunk.content:
                         yield _sse("token", {"content": chunk.content})
 
             yield _sse("done", {})

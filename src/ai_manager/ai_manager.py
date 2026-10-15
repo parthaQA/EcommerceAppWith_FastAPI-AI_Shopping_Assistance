@@ -51,7 +51,10 @@ def build_chat_model():
 
 
 tools = [
-    Tools.search_product
+    Tools.search_product,
+    Tools.save_user_meomry,
+    Tools.search_policy,
+    Tools.search_user_memory
     # Tools.add_product_to_cart_llm(customer_id=config["configurable"]["user"]["customer_id"], db=db),
     # Tools.get_cart_tool(db=db)
     ]

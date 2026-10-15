@@ -1,3 +1,4 @@
+import asyncio
 from typing import Annotated
 
 from fastapi import HTTPException
@@ -6,6 +7,8 @@ from langgraph.prebuilt import InjectedState
 from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.ai_manager.db_manager import DBManager
 from src.ai_manager.dtos import build_search_response
 from src.ai_manager.utils import Utils
 from src.cart.cart_service import CartService
@@ -39,14 +42,12 @@ from src.ai_manager.settings import ai_settings
 
 class Tools:
 
-    @tool
-    @traceable(name="search_product")
     @staticmethod
+    @tool
     async def search_product(
             name: str,
             config: RunnableConfig,
             state: Annotated[dict, InjectedState],
-            tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command:
         """Search grocery products by product name.
 
@@ -236,6 +237,61 @@ class Tools:
 
         return get_cart
 
+
+    @tool
+    @staticmethod
+    async def save_user_meomry(fact: str, config: RunnableConfig) -> dict:
+        """Save a durable fact or preference about the user (diet, preferred products,
+            payment preference, delivery notes). Use only when the user states something worth
+           remembering or explicitly asks you to save it. for example : save my address
+           as default address."""
+
+        customer_id = Utils.get_customer_id(config)
+
+        result = await asyncio.to_thread(DBManager.insert_into_mem0_db(messages=fact, customer_id=customer_id))
+        return {"status": "saved",
+                "message": f"f{fact} saved successfully.",
+                "memory_results": result
+                }
+
+    @tool
+    @staticmethod
+    async def search_user_memory(query: str, config: RunnableConfig) -> dict:
+        """Look up saved preferences or facts about this user. Use when a
+        user ask a personal context. for example : what is my default address?"""
+
+        customer_id = Utils.get_customer_id(config)
+        memories = await asyncio.to_thread(
+            DBManager.retrieve_from_mem0_db, customer_id=customer_id, query=query
+        )
+        return {"raw_response": memories, "memory_results": memories}
+
+
+    @tool
+    @staticmethod
+    async def search_policy(
+            query: str,
+            state: Annotated[dict, InjectedState],
+    ) -> dict:
+        """Look up store policies: refunds, returns, exchanges, terms and conditions,
+        delivery rules. Use for any question about company rules. Do NOT use for
+        product price or availability. Pass a short standalone question."""
+
+        context = await asyncio.to_thread(
+            DBManager.retrieve_policy,
+            state["messages"][:-1],  # exclude the AI tool-call message
+            query,
+            state.get("eval_mode", False),
+        )
+        return {
+            "raw_response": {
+                "status": "ok" if context else "no_results",
+                "note": "Policy text is in your system prompt." if context
+                else "No relevant policy found. Tell the user you don't have that information.",
+            },
+            "retrieved_context": context,
+        }
+
     @classmethod
     def all(cls) -> list:
-        return [cls.search_product]
+        return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy]

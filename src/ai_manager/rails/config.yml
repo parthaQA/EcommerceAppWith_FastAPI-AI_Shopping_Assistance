@@ -1,11 +1,15 @@
-colang_version: "2.x"
+colang_version: "1.0"
 
 models:
   - type: main
     engine: groq
     model: llama-3.3-70b-versatile
+  - type: self_check_input
+    engine: groq
+    model: llama-3.1-8b-instant
     parameters:
       api_key: ${GROQ_API_KEY}
+      temperature: 0.0
 
 instructions:
   - type: general
@@ -20,4 +24,20 @@ instructions:
 rails:
   input:
     flows:
-      - main
+      - self check input
+
+prompts:
+  - task: self_check_input
+    content: |
+      You are a topic filter for a grocery shopping assistant.
+      Block the message only if it is unrelated to shopping.
+
+      Allowed: finding products, prices, availability, cart, checkout, orders,
+      returns, refunds, delivery, store policies, food preferences and allergies,
+      and short follow-ups like "yes", "the first one", "add it", "no thanks".
+      Blocked: general knowledge, coding help, personal advice, entertainment.
+
+      User message: "{{ user_input }}"
+
+      Should the message be blocked (Yes or No)?
+      Answer:

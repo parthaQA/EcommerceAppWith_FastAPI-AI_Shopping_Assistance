@@ -1,18 +1,16 @@
+from cohere import Generation
 from langchain_redis.cache import RedisSemanticCache
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_postgres import PGVector
-from langgraph.checkpoint.postgres import PostgresSaver
 from langsmith import traceable
-from psycopg_pool import ConnectionPool
 import os
 from dotenv import load_dotenv
 from mem0 import Memory
-
-from src.ai_manager.ai_manager import build_chat_model
 from src.ai_manager.mem0_config import config
-from src.utils.settings import settings
+from src.ai_manager.utils import Utils
+
 
 
 class DBManager:
@@ -116,6 +114,7 @@ class DBManager:
     @staticmethod
     @traceable
     def rewrite_query(messages: list) -> str:
+        from src.ai_manager.ai_manager import build_chat_model
         """
         Rewrites the latest user message into a standalone, retrieval-optimized query
         using prior conversation turns for context.
@@ -167,3 +166,51 @@ class DBManager:
             )
 
         return DBManager._rag_cache
+
+    @staticmethod
+    def retrieve_policy(messages, query: str, eval_mode: bool = False) -> str:
+        RERANK_THRESHOLD = 0.05
+        EXPECTED_SCORE = 0.2
+        K = 10
+
+        version = Utils.get_rag_pipeline_version(
+            score_threshold=EXPECTED_SCORE,
+            rerank_threshold=RERANK_THRESHOLD,
+            k=K,
+            reranker=DBManager.embedding_model.model_name,
+        )
+
+        rewritten_query = DBManager.rewrite_query(messages)
+        cache = DBManager.get_rag_cache()
+
+        if not eval_mode:
+            cached = cache.lookup(prompt=rewritten_query, llm_string=version)
+            if cached:
+                return cached[0].text
+
+        vector_store = DBManager.setup_vector_store()
+        result = vector_store.similarity_search_with_relevance_scores(
+            query=rewritten_query, k=K
+        )
+        filtered = [doc for doc, score in result if score >= EXPECTED_SCORE]
+        if not filtered:
+            return ""
+
+        rerank_doc = Utils.rerank_query_response(query=query, document=filtered)
+        top_results = [r for r in rerank_doc.results if r.relevance_score >= RERANK_THRESHOLD]
+        if not top_results:
+            top_results = rerank_doc.results[:2]
+
+        top_chunks = [
+            f"[{filtered[r.index].metadata.get('category', 'unknown')}] {filtered[r.index].page_content}"
+            for r in top_results
+        ]
+        context = "\n\n".join(top_chunks)
+
+        if not eval_mode:
+            cache.update(
+                prompt=rewritten_query,
+                llm_string=version,
+                return_val=[Generation(text=context)],
+            )
+        return context

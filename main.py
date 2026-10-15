@@ -4,6 +4,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.ai_manager.ai_manager import get_rails_config
 from src.ai_manager.graph_orchestrator import GraphOrchestrator
 from src.cart.router import cart_routes
 from src.category.router import category_routes
@@ -61,6 +62,8 @@ async def lifespan(app: FastAPI):
     try:
         app.state.graph = await GraphOrchestrator.acreate_graph_builder()
         print("LangGraph initialised successfully")
+        get_rails_config()
+        print("Guardrails initialised successfully")
     except Exception as e:
         print(f"LangGraph initialisation failed: {e}")
         await GraphOrchestrator.aclose()
