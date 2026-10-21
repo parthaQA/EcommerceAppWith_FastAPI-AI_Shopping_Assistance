@@ -50,9 +50,9 @@ async def add_product_in_bulk(
         db=db,
     )
 
-@product_routes.get("/search/{name}", status_code=status.HTTP_200_OK)
+@product_routes.get("/search", status_code=status.HTTP_200_OK)
 async def search_product(
-    name: str,
+    name: Annotated[str, Query(min_length=1)],
     es: AsyncElasticsearch = Depends(get_es),
     db: AsyncSession = Depends(get_db),
     user: AuthUser = Depends(get_current_user),

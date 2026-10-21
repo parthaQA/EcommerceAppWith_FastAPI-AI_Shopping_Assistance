@@ -16,6 +16,8 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from psycopg_pool import AsyncConnectionPool
+
+from src.ai_manager.settings import AISettings
 from src.ai_manager.utils import Utils
 from src.utils.settings import settings
 
@@ -92,7 +94,7 @@ class GraphOrchestrator:
         print("Guardrails Node: reply text message :", reply_text)
         print("Guardrails Node: reply text type:", type(reply_text))
         # Allowed messages come back as an echo of the input; blocked ones come back as the refusal text.
-        blocked = bool(reply_text) and reply_text != query.strip()
+        blocked = bool(reply_text and reply_text != query.strip())
 
         print("Guardrails Node: blocked message:", blocked)
 
@@ -238,11 +240,19 @@ class GraphOrchestrator:
             ))
 
             if name == "search_product":
-                updates["search_results"] = data["search_results"]
-                updates["product_memory"] = {
+                new_products = data["product_memory"]
+
+                memory = {
                     **(state.get("product_memory") or {}),
-                    **data["product_memory"],
+                    **new_products,
                 }
+
+                # more than 5 products: reset, and keep only this search's products
+                if len(memory) > 5:
+                    memory = new_products
+
+                updates["search_results"] = data["search_results"]
+                updates["product_memory"] = memory
                 updates["search_completed"] = True
 
             elif name == "add_product_to_cart":

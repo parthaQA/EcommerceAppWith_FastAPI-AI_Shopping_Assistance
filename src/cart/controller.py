@@ -21,14 +21,22 @@ class CartController:
 
     @staticmethod
     async def get_cart(user: AuthUser, location: str, db: AsyncSession):
-        cart = await CartService.create_cart(user.customer_id, location, db)
+        result = await CartService.create_cart(user.customer_id, location, db)
+        cart = result["cart"]
+        products = [
+            ProductResponseSchema.model_validate(product).model_copy(
+                update={"product_quantity": item.quantity}  # cart quantity, not stock
+            )
+            for item, product in result["items"]
+        ]
+
         return {
             "success": True,
-            "data": CartResponseSchema(
+            "data": CartProductsResponseSchema(
                 cart_id=cart.cart_id,
-                location=cart.location,
-                created_date=cart.created_date,
-                modified_date=cart.modified_date,
+                total_bill=round(sum(p.product_price * p.product_quantity for p in products), 2),
+                total_product_quantity=sum(p.product_quantity for p in products),
+                cart_products=[CartProductSchema(product_details=products)],
             ),
             "message": "Cart retrieved successfully",
         }
@@ -50,21 +58,21 @@ class CartController:
                 cart_id=result["cart_id"],
                 total_bill=result["total_bill"],
                 total_product_quantity=result["total_product_quantity"],
-                cart_products=CartProductSchema(product_details=products),
+                cart_products=[CartProductSchema(product_details=products)],  # list added
             ),
             "message": "product is added to cart",
         }
 
     @staticmethod
     async def reset_cart(user: AuthUser, cart_id: str, db: AsyncSession):
-        cart_id = await CartService.reset_cart(user.customer_id, cart_id, db)
+        cart_id = await CartService.reset_cart_items(user.customer_id, cart_id, db)
         return {
             "success": True,
             "data": CartProductsResponseSchema(
                 cart_id=cart_id,
                 total_bill=0,
                 total_product_quantity=0,
-                cart_products=CartProductSchema(product_details=[]),
+                cart_products=[CartProductSchema(product_details=[])],  # list added
             ),
             "message": "products are removed from cart",
         }

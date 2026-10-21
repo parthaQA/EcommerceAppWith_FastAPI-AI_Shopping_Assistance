@@ -1,4 +1,3 @@
-from src.products.dtos import ProductSchema
 from src.utils.enums import PaymentMode
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
@@ -7,7 +6,7 @@ from datetime import datetime
 class CartResponseSchema(BaseModel):
     cart_id: str
     location: str
-
+    cart_items: List
     created_date: datetime
     modified_date: datetime
 
@@ -15,6 +14,16 @@ class CartItemSchema(BaseModel):
     product_id: int = Field(..., ge=0, strict=True)
     quantity: int = Field(..., ge=0, strict=True)
     is_checkout: bool = Field(default=False, strict=True)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CartItemResponseSchema(BaseModel):
+    # adjust to your CartItemModel columns
+    cart_item_id: str
+    product_id: str
+    quantity: int
+    price: float
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -41,7 +50,7 @@ class CartProductsResponseSchema(BaseModel):
     cart_id: str
     total_bill: float
     total_product_quantity: int
-    cart_products: CartProductSchema
+    cart_products: list[CartProductSchema]
 
     model_config = ConfigDict(from_attributes=True)
 

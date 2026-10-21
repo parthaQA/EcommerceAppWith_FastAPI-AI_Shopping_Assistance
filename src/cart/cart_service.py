@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cart.dtos import CartItemSchema, DeliveryAddressSchema, PaymentPreferenceSchema
@@ -35,25 +36,58 @@ class CartService:
 
     @staticmethod
     async def create_cart(
-        customer_id: str,
-        location: str,
-        db: AsyncSession,
-    ) -> CartModel:
+            customer_id: str,
+            location: str,
+            db: AsyncSession,
+    ) -> dict:
         customer = await db.scalar(
             select(CustomerModel).where(CustomerModel.id == customer_id)
         )
         if customer is None:
             raise HTTPException(status_code=404, detail="Customer not found")
 
-        cart = CartModel(
-            cart_id=Helper.generate_cart_id(),
-            location=location,
-            customer_id=customer_id,
+        active_cart_query = (
+            select(CartModel)
+            .where(
+                CartModel.customer_id == customer_id,
+                CartModel.status == "ACTIVE",
+            )
+            .order_by(CartModel.created_date.desc())
+            .limit(1)
         )
-        db.add(cart)
-        await db.commit()
-        await db.refresh(cart)
-        return cart
+
+        cart = await db.scalar(active_cart_query)
+
+        if cart is None:
+            cart = CartModel(
+                cart_id=Helper.generate_cart_id(),
+                location=location,
+                customer_id=customer_id,
+                status="ACTIVE",
+            )
+            db.add(cart)
+            try:
+                await db.commit()
+                await db.refresh(cart)
+            except IntegrityError:
+                await db.rollback()
+                cart = await db.scalar(active_cart_query)
+                if cart is None:
+                    raise
+
+        # Fetch the cart's items together with their product details
+        result = await db.execute(
+            select(CartItemModel, ProductModel)
+            .join(ProductModel, ProductModel.product_id == CartItemModel.product_id)
+            .where(
+                CartItemModel.cart_id == cart.cart_id,
+                CartItemModel.is_checkout.is_(True),
+            )
+            .order_by(CartItemModel.created_date)
+        )
+        items = result.all()
+
+        return {"cart": cart, "items": items}
 
     @staticmethod
     async def add_product(
@@ -62,6 +96,7 @@ class CartService:
         body: CartItemSchema,
         db: AsyncSession,
     ) -> dict:
+
         await CartService.get_owned_cart(cart_id, customer_id, db)
 
         product = await db.scalar(
@@ -126,7 +161,7 @@ class CartService:
         }
 
     @staticmethod
-    async def reset_cart(
+    async def reset_cart_items(
         customer_id: str,
         cart_id: str,
         db: AsyncSession,

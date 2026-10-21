@@ -1,38 +1,24 @@
 import asyncio
+from pprint import pprint
 from typing import Annotated
 
 from fastapi import HTTPException
-from langchain_core.tools import tool
-from langgraph.prebuilt import InjectedState
-from langsmith import traceable
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_manager.db_manager import DBManager
 from src.ai_manager.dtos import build_search_response
 from src.ai_manager.utils import Utils
 from src.cart.cart_service import CartService
-from src.cart.dtos import (
-    CartProductSchema,
-    CartProductsResponseSchema,
-    ProductResponseSchema,
-)
-from src.cart.models import CartItemModel, CartModel
-from src.customers.models import CustomerModel
-from src.products.controller import ProductController
-from src.products.models import ProductModel
 from langgraph.types import interrupt
 
+from src.cart.dtos import CartResponseSchema, CartItemSchema
+from src.cart.models import CartItemModel
 from src.products.product_service import ProductService
 from src.utils.db import get_db_ctx
 from src.utils.es_client import get_es_client
-from src.utils.helper import Helper
-import json
 from typing import Annotated
-
-from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import tool, InjectedToolCallId
+from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from langsmith import traceable
@@ -77,134 +63,105 @@ class Tools:
             for p in products
         ]
 
+        print("search result :", structured)
+
         # Merge into existing memory without mutating the old dict
-        memory = {
-            **state.get("product_memory", {}),
-            **{p["name"].lower(): p for p in structured},
-        }
+
+        # memory = {
+        # **(state.get("product_memory") or {}),
+        # **{str(p["product_id"]): p for p in structured},
+        # }
 
         return {
             "search_results": structured,
-            "product_memory": memory,
-            "raw_response": build_search_response(name, structured[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM])
+            "product_memory": {str(p["product_id"]): p for p in structured},
+            "raw_response": build_search_response(
+                name, structured[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM]
+            ),
         }
 
-    @staticmethod
-    def add_product_to_cart_llm(customer_id, db: AsyncSession):
 
-        @tool
-        @traceable
-        async def add_product_to_cart(
+
+    @staticmethod
+    @tool
+    async def add_product_to_cart(
+            config: RunnableConfig,
             product_name: str,
             state: Annotated[dict, InjectedState],
             quantity: int = 1,
         ):
-            """
-            add products to cart.
+        """
+        add products to cart.
 
-            Use this tool whenever the user asks:
-            - add products to cart
-            - Check the searched product is already available in product memory
-            - if avaiable use the products from product memory.
+        Use this tool whenever the user asks:
+        - add products to cart
+        - Check the searched product is already available in product memory
+        - if avaiable use the products from product memory.
+        - if not call product search tool to search the product
+        - if user does not explicit gives quantiy of product then
+            ask the customer for product quantity.
 
-            Returns:
-            cart details where product name, price are mentioned
-            """
-            location = state["location"]
-            memory = state.get("product_memory", {})
-            print("memory :", memory)
+        Returns:
+        cart details where product name, price are mentioned
+        """
+        location = state.get("location", "")
+        customer_id = Utils.get_customer_id(config)
+        memory = state.get("product_memory", {})
+        print("memory :", memory)
 
-            product = memory.get(product_name.lower())
-            print("product details : ", product)
+        product = None
+        for p in memory.values():
+            if p["name"].lower() == product_name.strip().lower():
+                product = p
+                break
 
-            if not product:
-                return {
-                    "success": False,
-                    "message": "Product not found in previous search.",
-                }
-
-            product_id = product["product_id"]
-
-            result = await db.execute(
-                select(CustomerModel).where(CustomerModel.id == customer_id)
-            )
-            customer_exists = result.scalars().first()
-            if not customer_exists:
-                raise HTTPException(status_code=404, detail="Customer not found")
-
-            result = await db.execute(
-                select(CartModel).where(CartModel.customer_id == customer_id)
-            )
-            cart = result.scalars().first()
-
-            if cart:
-                cart_id = cart.cart_id
-            else:
-                cart_id = Helper.generate_cart_id()
-                cart = CartModel(
-                    cart_id=cart_id,
-                    customer_id=customer_id,
-                    location=location,
-                )
-                db.add(cart)
-                await db.commit()
-                await db.refresh(cart)
-
-            if product["quantity"] < quantity:
-                raise HTTPException(status_code=400, detail="quantity not available")
-
-            cart_products = CartItemModel(
-                cart_id=cart_id,
-                product_id=product_id,
-                quantity=quantity,
-                is_checkout=True,
-            )
-            db.add(cart_products)
-            await db.commit()
-            await db.refresh(cart_products)
-
-            result = await db.execute(
-                select(CartItemModel).where(CartItemModel.cart_id == cart_id)
-            )
-            cart_items = result.scalars().all()
-
-            products = []
-            total_bill = 0
-            total_quantity = 0
-
-            for item in cart_items:
-                result = await db.execute(
-                    select(ProductModel).where(
-                        ProductModel.product_id == item.product_id
-                    )
-                )
-                prod = result.scalars().first()
-                products.append(
-                    ProductResponseSchema(
-                        product_id=prod.product_id,
-                        product_name=prod.product_name,
-                        product_description=prod.product_description,
-                        product_price=prod.product_price,
-                        product_quantity=item.quantity,
-                    )
-                )
-                total_bill += prod.product_price * item.quantity
-                total_quantity += item.quantity
-
-            cart_response = CartProductsResponseSchema(
-                cart_id=cart_id,
-                total_bill=total_bill,
-                total_product_quantity=total_quantity,
-                cart_products=CartProductSchema(product_details=products),
-            )
-
+        if not product:
             return {
-                "success": True,
-                "data": cart_response.model_dump(),
-                "message": "product is added to cart",
+                "success": False,
+                "message": "Product not found in previous search.",
             }
 
-        return add_product_to_cart
+        print("product:", product["name"])
+
+        product_id = product.get("product_id")
+        print("product_id:", product_id)
+        product_quantity = quantity
+
+        async with get_db_ctx() as db:
+            cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+
+
+        if not cart_details:
+            return {
+                "message": "cart is not created successfully",
+            }
+
+        cart_data = {
+                "cart_id" : cart_details.cart_id,
+                "message": "Cart retrieved successfully",
+        }
+
+        print("cart data :", cart_data)
+
+        cart_id = cart_data["cart_id"]
+
+        create_payload = CartItemSchema(
+                product_id=product_id,
+                quantity=product_quantity,
+                is_checkout=True,
+            )
+        print("create payload :", create_payload.model_dump())
+
+        cart_response = await CartService.add_product(customer_id=customer_id,cart_id=cart_id,
+                                                              body=create_payload, db=db)
+
+        print("response of cart :", cart_response)
+
+        return {
+                "success": True,
+                "data": cart_response,
+                "message": "product is added to cart",
+        }
 
     @staticmethod
     @tool
@@ -294,4 +251,4 @@ class Tools:
 
     @classmethod
     def all(cls) -> list:
-        return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy]
+        return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy, cls.add_product_to_cart]

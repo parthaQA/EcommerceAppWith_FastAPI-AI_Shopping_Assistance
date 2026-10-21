@@ -34,6 +34,7 @@ class AISettings(BaseSettings):
 
     # What the LLM sees
     PRODUCT_SEARCH_RESULTS_TO_LLM: int = 10
+    MAX_MEMORY: int= 5
 
 
 ai_settings = AISettings()
