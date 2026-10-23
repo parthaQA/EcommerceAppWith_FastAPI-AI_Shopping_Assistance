@@ -87,7 +87,15 @@ class CartService:
         )
         items = result.all()
 
-        return {"cart": cart, "items": items}
+        total_bill = round(sum(product.product_price * item.quantity for item, product in items), 2)
+        total_product_quantity = sum(item.quantity for item, product in items)
+
+        return {
+            "cart": cart,
+            "items": items,
+            "total_bill": total_bill,
+            "total_product_quantity": total_product_quantity,
+        }
 
     @staticmethod
     async def add_product(

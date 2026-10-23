@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langsmith import traceable
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class State(TypedDict):
 
-    messages: Annotated[list, add_messages]
+    messages: Annotated[list[BaseMessage], add_messages]
     mobile: str
     location: str
     search_results: list[dict]

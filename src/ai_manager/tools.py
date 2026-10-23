@@ -13,6 +13,7 @@ from langgraph.types import interrupt
 
 from src.cart.dtos import CartResponseSchema, CartItemSchema
 from src.cart.models import CartItemModel
+from src.products.dtos import ProductResponseSchema
 from src.products.product_service import ProductService
 from src.utils.db import get_db_ctx
 from src.utils.es_client import get_es_client
@@ -127,23 +128,19 @@ class Tools:
         print("product_id:", product_id)
         product_quantity = quantity
 
+        cart_details = ""
         async with get_db_ctx() as db:
             cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+            cart = cart_details["cart"]
+            cart_id = cart.cart_id  # the string ID, e.g. "07494205-d52d-486d-a9d7-3b01600ac4b3"
+
+            print("cart id", cart_id)
 
 
         if not cart_details:
             return {
                 "message": "cart is not created successfully",
             }
-
-        cart_data = {
-                "cart_id" : cart_details.cart_id,
-                "message": "Cart retrieved successfully",
-        }
-
-        print("cart data :", cart_data)
-
-        cart_id = cart_data["cart_id"]
 
         create_payload = CartItemSchema(
                 product_id=product_id,
@@ -157,10 +154,29 @@ class Tools:
 
         print("response of cart :", cart_response)
 
+        fetch_cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+
+        print("fetch cart details key", fetch_cart_details.keys())
+
+        products = [
+            ProductResponseSchema.model_validate(product).model_copy(
+                update={"product_quantity": item.quantity}
+            )
+            for item, product in fetch_cart_details["items"]
+        ]
+
+        extracted = {
+            "total_bill": fetch_cart_details["total_bill"],
+            "total_product_quantity": fetch_cart_details["total_product_quantity"],
+            "cart_products": [{"product_details": [p.model_dump(mode="json") for p in products]}],
+        }
+
+        print("extracted :", extracted)
+
         return {
                 "success": True,
-                "data": cart_response,
-                "message": "product is added to cart",
+                "data": extracted,
+                "message": "cart is retrieved successfully",
         }
 
     @staticmethod
