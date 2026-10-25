@@ -186,27 +186,18 @@ class GraphOrchestrator:
     @traceable
     async def custom_tool_node(state: State, config: RunnableConfig):
         tools_by_name = {t.name: t for t in tools}
+        print("tools by name :", tools_by_name)
         last_ai = state["messages"][-1]
+        print("Last AI message:", last_ai)
+
 
         outputs: list[ToolMessage] = []
         updates: dict = {}
 
         for tool_call in last_ai.tool_calls:
-            name = tool_call["name"]
-            tool = tools_by_name.get(name)
+            tool_name = tool_call["name"]
+            tool = tools_by_name.get(tool_name)
 
-            def error_message(payload: dict) -> ToolMessage:
-                return ToolMessage(
-                    content=json.dumps(payload),
-                    tool_call_id=tool_call["id"],
-                    name=name,
-                    status="error",
-                )
-
-            if tool is None:
-                logger.warning("LLM requested unknown tool: %s", name)
-                outputs.append(error_message({"error": 404, "message": f"Unknown tool {name}"}))
-                continue
 
             call = {
                 **tool_call,
@@ -216,16 +207,14 @@ class GraphOrchestrator:
 
             try:
                 result = await tool.ainvoke(call, config)
-            except HTTPException as e:
-                logger.warning("Tool %s failed: %s %s", name, e.status_code, e.detail)
-                outputs.append(error_message({"error": e.status_code, "message": str(e.detail)}))
-                continue
-            except Exception:
-                logger.exception("Unexpected error in tool %s", name)  # includes full traceback
-                outputs.append(error_message({"error": 500, "message": "Something went wrong on our side"}))
-                continue
+
+                print("result of tool :", result)
+
+            except Exception as e:
+                raise Exception("tool called failed", e)
 
             content = result.content if isinstance(result, ToolMessage) else result
+            print("content of tool", content)
             try:
                 data = json.loads(content) if isinstance(content, str) else content
             except json.JSONDecodeError:
@@ -236,11 +225,17 @@ class GraphOrchestrator:
             outputs.append(ToolMessage(
                 content=json.dumps(data.get("raw_response", data), default=str),
                 tool_call_id=tool_call["id"],
-                name=name,
+                name=tool_call["name"],
             ))
+            print("output :", outputs)
 
-            if name == "search_product":
-                new_products = data["product_memory"]
+            if tool_name == "search_product":
+                new_products = data.get("product_memory", {})
+
+                if not new_products:
+                    return {
+                        "messages" : outputs,
+                    }
 
                 memory = {
                     **(state.get("product_memory") or {}),
@@ -255,16 +250,19 @@ class GraphOrchestrator:
                 updates["product_memory"] = memory
                 updates["search_completed"] = True
 
-            elif name == "add_product_to_cart":
-                updates["cart"] = data["data"]
+            elif tool_name == "add_product_to_cart":
+                if data.get("success") and "data" in data:
+                    updates["cart"] = data["data"]
+                else:
+                    print("add_product_to_cart failed:", data.get("message"))
 
-            elif name == "get_cart":
+            elif tool_name == "get_cart":
                 updates["cart_details"] = data["data"]
 
-            elif name == "search_user_memory":
+            elif tool_name == "search_user_memory":
                 updates["memory_results"] = data.get("memory_results")
 
-            elif name == "search_policy":
+            elif tool_name == "search_policy":
                 updates["retrieved_context"] = data.get("retrieved_context", "")
 
         return {"messages": outputs, **updates}

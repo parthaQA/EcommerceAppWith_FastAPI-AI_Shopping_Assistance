@@ -47,6 +47,7 @@ def build_chat_model():
         model_provider=ai_settings.LLM_PROVIDER,
         base_url=ai_settings.LLM_BASE_URL,
         streaming=ai_settings.LLM_STREAMING,
+        temperature=0,
     )
 
 

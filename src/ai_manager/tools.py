@@ -32,7 +32,7 @@ class Tools:
     @staticmethod
     @tool
     async def search_product(
-            name: str,
+            product_name: str,
             config: RunnableConfig,
             state: Annotated[dict, InjectedState],
     ) -> Command:
@@ -48,12 +48,15 @@ class Tools:
         """
         customer_id = Utils.get_customer_id(config)
 
+        searched_product = None
+        product_id = None
+
         async with get_db_ctx() as db:
             products = await ProductService.search_by_name(
-                name, customer_id, db, get_es_client()
+                product_name, customer_id, db, get_es_client()
             )
 
-        structured = [
+        results = [
             {
                 "name": p.product_name,
                 "price": p.product_price,
@@ -64,20 +67,31 @@ class Tools:
             for p in products
         ]
 
-        print("search result :", structured)
+        print("search result :", results)
 
-        # Merge into existing memory without mutating the old dict
+        for prod in results:
+            if prod["name"].lower() == product_name.lower():
+                searched_product = prod["name"]
+                product_id = prod["product_id"]
+                break
 
-        # memory = {
-        # **(state.get("product_memory") or {}),
-        # **{str(p["product_id"]): p for p in structured},
-        # }
+        print("searched product", searched_product)
+        print("product id", product_id)
+
+        if product_id is None:
+
+            return {
+                "success": False,
+                "message": f"{product_name} is not available in the stock"
+            }
+
 
         return {
-            "search_results": structured,
-            "product_memory": {str(p["product_id"]): p for p in structured},
+            "success": True,
+            "search_results": results,
+            "product_memory": {str(p["product_id"]): p for p in results},
             "raw_response": build_search_response(
-                name, structured[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM]
+                product_name, results[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM]
             ),
         }
 
@@ -96,11 +110,8 @@ class Tools:
 
         Use this tool whenever the user asks:
         - add products to cart
-        - Check the searched product is already available in product memory
-        - if avaiable use the products from product memory.
-        - if not call product search tool to search the product
-        - if user does not explicit gives quantiy of product then
-            ask the customer for product quantity.
+        - if user does not explicit gives quantity of product then
+            add 1 quantity of the product
 
         Returns:
         cart details where product name, price are mentioned
@@ -110,23 +121,44 @@ class Tools:
         memory = state.get("product_memory", {})
         print("memory :", memory)
 
-        product = None
-        for p in memory.values():
-            if p["name"].lower() == product_name.strip().lower():
-                product = p
+        searched_product = None
+        product_id = None
+
+        async with get_db_ctx() as db:
+            products_details = await ProductService.search_by_name(
+                    product_name, customer_id, db, get_es_client()
+                )
+
+            results = [
+                    {
+                        "name": p.product_name,
+                        "price": p.product_price,
+                        "available": p.product_quantity > 0,
+                        "quantity": p.product_quantity,
+                        "product_id": p.product_id,
+                    }
+            for p in products_details
+                ]
+            print("structured", results)
+
+
+        for prod in results:
+            if prod["name"].lower() == product_name.lower():
+                searched_product = prod["name"]
+                product_id = prod["product_id"]
                 break
 
-        if not product:
+
+        print("searched product", searched_product)
+        print("product id", product_id)
+
+        if product_id is None:
+
             return {
-                "success": False,
-                "message": "Product not found in previous search.",
+                "success" : False,
+                "message": f"{product_name} is not available in the stock"
             }
 
-        print("product:", product["name"])
-
-        product_id = product.get("product_id")
-        print("product_id:", product_id)
-        product_quantity = quantity
 
         cart_details = ""
         async with get_db_ctx() as db:
@@ -139,12 +171,13 @@ class Tools:
 
         if not cart_details:
             return {
+                "success": False,
                 "message": "cart is not created successfully",
             }
 
         create_payload = CartItemSchema(
                 product_id=product_id,
-                quantity=product_quantity,
+                quantity=quantity,
                 is_checkout=True,
             )
         print("create payload :", create_payload.model_dump())
