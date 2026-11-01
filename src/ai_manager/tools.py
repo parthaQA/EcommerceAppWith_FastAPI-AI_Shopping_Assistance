@@ -5,13 +5,14 @@ from typing import Annotated
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai_manager import utils
 from src.ai_manager.db_manager import DBManager
-from src.ai_manager.dtos import build_search_response
+from src.ai_manager.dtos import ToolResult
 from src.ai_manager.utils import Utils
 from src.cart.cart_service import CartService
 from langgraph.types import interrupt
 
-from src.cart.dtos import CartResponseSchema, CartItemSchema
+from src.cart.dtos import CartResponseSchema, CartItemSchema, CartProductsResponseSchema
 from src.cart.models import CartItemModel
 from src.products.dtos import ProductResponseSchema
 from src.products.product_service import ProductService
@@ -22,7 +23,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
-from langsmith import traceable
+
 
 from src.ai_manager.settings import ai_settings
 
@@ -33,8 +34,7 @@ class Tools:
     @tool
     async def search_product(
             product_name: str,
-            config: RunnableConfig,
-            state: Annotated[dict, InjectedState],
+            config: RunnableConfig
     ) -> Command:
         """Search grocery products by product name.
 
@@ -69,31 +69,38 @@ class Tools:
 
         print("search result :", results)
 
-        for prod in results:
-            if prod["name"].lower() == product_name.lower():
-                searched_product = prod["name"]
-                product_id = prod["product_id"]
-                break
+        # for prod in results:
+        #     if prod["name"].lower() == product_name.lower():
+        #         searched_product = prod["name"]
+        #         product_id = prod["product_id"]
+        #         break
+        #
+        # print("searched product", searched_product)
+        # print("product id", product_id)
 
-        print("searched product", searched_product)
-        print("product id", product_id)
+        if results is None:
 
-        if product_id is None:
+            return ToolResult(
+                success=False,
+                message=f"{product_name} is not available in the stock",
+                error_code="NOT_FOUND",
+            ).model_dump_json()
 
-            return {
-                "success": False,
-                "message": f"{product_name} is not available in the stock"
-            }
+        print("exposed data: ", results[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM])
 
-
-        return {
-            "success": True,
-            "search_results": results,
-            "product_memory": {str(p["product_id"]): p for p in results},
-            "raw_response": build_search_response(
-                product_name, results[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM]
-            ),
-        }
+        try:
+            return ToolResult(
+                success=True,
+                message=f"Found {len(results)} products",
+                data=results[:ai_settings.PRODUCT_SEARCH_RESULTS_TO_LLM],
+                internal={
+                    "search_results": results,
+                    "product_memory": {str(p["product_id"]): p for p in results},
+                },
+            ).model_dump_json()
+        except Exception:
+            print("search_product failed while building result")
+            raise
 
 
 
@@ -154,10 +161,11 @@ class Tools:
 
         if product_id is None:
 
-            return {
-                "success" : False,
-                "message": f"{product_name} is not available in the stock"
-            }
+            return ToolResult(
+                success=False,
+                message=f"{product_name} is not available in the stock",
+                error_code="NOT_FOUND",
+            ).model_dump_json()
 
 
         cart_details = ""
@@ -170,10 +178,11 @@ class Tools:
 
 
         if not cart_details:
-            return {
-                "success": False,
-                "message": "cart is not created successfully",
-            }
+            return ToolResult(
+                success=False,
+                message="Cart is not created",
+                error_code="Cart Failure",
+            ).model_dump_json()
 
         create_payload = CartItemSchema(
                 product_id=product_id,
@@ -206,11 +215,18 @@ class Tools:
 
         print("extracted :", extracted)
 
-        return {
-                "success": True,
-                "data": extracted,
-                "message": "cart is retrieved successfully",
-        }
+        if extracted:
+            return ToolResult(
+            success=True,
+            message="Added to cart",
+            data=extracted,
+            ).model_dump_json()
+
+        return ToolResult(
+            success=False,
+            message="product not added to cart",
+            data=extracted,
+        ).model_dump_json()
 
     @staticmethod
     @tool
@@ -222,26 +238,56 @@ class Tools:
         return human_response["data"]
 
     @staticmethod
-    def get_cart_tool(db: AsyncSession):
+    @tool
+    async def get_cart_tool(state: Annotated[dict, InjectedState], config: RunnableConfig) -> dict:
 
-        @tool
-        @traceable
-        async def get_cart(state: Annotated[dict, InjectedState]):
-            """call this tool to get the latest cart details
-            the cart contains all the latest product details are
-            added to cart."""
-            cart_id = state["cart"]["cart_id"]
-            customer_id = state.get("customer_id")
-            if not customer_id:
-                raise HTTPException(status_code=401, detail="Customer not authenticated")
-            cart_products = await CartService.get_cart_for_checkout(
+        """call this tool to get the latest cart details
+        the cart contains all the latest product details and their prices.
+        calculate the total price of the cart and return it to the user."""
+
+        customer_id = Utils.get_customer_id(config)
+
+        location = state.get("location", "")
+
+        try :
+
+            async with get_db_ctx() as db:
+                cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+                cart = cart_details["cart"]
+                cart_products = await CartService.get_cart_for_checkout(
                 str(customer_id),
-                cart_id,
+                cart.cart_id,
                 db,
-            )
-            return {"data": cart_products}
+                )
 
-        return get_cart
+            print("cart products", cart_products)
+
+        except Exception as e:
+            print("Error while fetching cart details:", str(e))
+            return ToolResult(
+                success=False,
+                data={},
+                message="Could not load the cart right now. Tell the user there was a problem; do not call this tool again.",
+            ).model_dump_json()
+
+        if cart_products:
+            extracted = [
+                    {
+                        "product_name": p.get("product_name"),
+                        "product_price": p.get("product_price"),
+                        "product_quantity": p.get("product_quantity"),
+                    }
+                    for p in cart_products
+                ]
+
+            print("extracted :", extracted)
+
+            return ToolResult(
+                success=True,
+                data=extracted,
+                message="cart details are fetched sucessfully" if extracted else "cart is empty",
+                ).model_dump_json()
+
 
 
     @tool
@@ -298,6 +344,34 @@ class Tools:
             "retrieved_context": context,
         }
 
+    @staticmethod
+    @tool
+    async def remove_product_from_cart(state: Annotated[dict, InjectedState], config: RunnableConfig) -> dict:
+        """use this tool when user says remove product from the cart"""
+
+        cart_id = state.get("cart").get("cart_id")
+        customer_id = Utils.get_customer_id(config)
+
+        async with get_db_ctx() as db:
+            cart = await CartService.reset_cart_items(customer_id, cart_id, db)
+
+            if cart :
+
+                return  ToolResult(
+                        success=True,
+                        message="product is removed from cart",
+                        data={},
+                        ).model_dump_json()
+
+
+            return ToolResult(
+                    success=False,
+                    message="product is not removed from cart",
+                    data={},
+                ).model_dump_json()
+
+
     @classmethod
     def all(cls) -> list:
-        return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy, cls.add_product_to_cart]
+        return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy, cls.add_product_to_cart,
+                cls.remove_product_from_cart, cls.get_cart_tool]

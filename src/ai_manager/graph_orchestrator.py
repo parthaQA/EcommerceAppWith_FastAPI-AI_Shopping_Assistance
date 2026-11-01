@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Annotated, TypedDict
 from fastapi import HTTPException
@@ -8,7 +9,10 @@ from langchain_core.messages import SystemMessage, BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import tools_condition
+from pydantic import ValidationError
+
 from src.ai_manager.ai_manager import get_rails_config, llm_with_tools, tools
+from src.ai_manager.dtos import ToolResult
 from src.ai_manager.prompt import PRODUCT_SEARCH_SYSTEM_PROMPT, OFF_TOPIC_REPLY
 from langchain_core.messages import (
     HumanMessage,
@@ -133,7 +137,7 @@ class GraphOrchestrator:
                 matched_product = product
                 break
 
-        model = llm_with_tools
+        model = llm_with_tools.bind()
 
         # Dynamic context
         dynamic_context = []
@@ -166,6 +170,7 @@ class GraphOrchestrator:
 
         if state.get("cart"):
             dynamic_context.append(f"Current Cart {json.dumps(state['cart'], indent=2)}")
+
         if state.get("cart_details"):
             dynamic_context.append(f"Latest Cart Details {json.dumps(state['cart_details'], indent=2)}")
 
@@ -198,72 +203,83 @@ class GraphOrchestrator:
             tool_name = tool_call["name"]
             tool = tools_by_name.get(tool_name)
 
+            if tool is None:
 
-            call = {
+                result = Utils.capture_error("UNKNOWN_TOOL", f"Tool '{tool_name}' does not exist.")
+            else :
+
+                call = {
                 **tool_call,
                 "type": "tool_call",
                 "args": {**tool_call["args"], "state": state},
-            }
-
-            try:
-                result = await tool.ainvoke(call, config)
-
-                print("result of tool :", result)
-
-            except Exception as e:
-                raise Exception("tool called failed", e)
-
-            content = result.content if isinstance(result, ToolMessage) else result
-            print("content of tool", content)
-            try:
-                data = json.loads(content) if isinstance(content, str) else content
-            except json.JSONDecodeError:
-                data = {"result": content}
-            if not isinstance(data, dict):
-                data = {"result": data}
-
-            outputs.append(ToolMessage(
-                content=json.dumps(data.get("raw_response", data), default=str),
-                tool_call_id=tool_call["id"],
-                name=tool_call["name"],
-            ))
-            print("output :", outputs)
-
-            if tool_name == "search_product":
-                new_products = data.get("product_memory", {})
-
-                if not new_products:
-                    return {
-                        "messages" : outputs,
-                    }
-
-                memory = {
-                    **(state.get("product_memory") or {}),
-                    **new_products,
                 }
 
-                # more than 5 products: reset, and keep only this search's products
-                if len(memory) > 5:
-                    memory = new_products
+                try:
+                    raw_result = await asyncio.wait_for(tool.ainvoke(call, config), timeout=20)
 
-                updates["search_results"] = data["search_results"]
-                updates["product_memory"] = memory
-                updates["search_completed"] = True
+                    print("result of tool :", raw_result)
 
-            elif tool_name == "add_product_to_cart":
-                if data.get("success") and "data" in data:
-                    updates["cart"] = data["data"]
-                else:
-                    print("add_product_to_cart failed:", data.get("message"))
+                    content = raw_result.content if isinstance(raw_result, ToolMessage) else raw_result
+                    print("content of tool", content)
+                    if isinstance(content, str):
+                        content = json.loads(content)
+                    result = ToolResult.model_validate(content)
 
-            elif tool_name == "get_cart":
-                updates["cart_details"] = data["data"]
+                except asyncio.TimeoutError:
+                    result = Utils.capture_error("TIMEOUT", "That took too long. Please try again.")
+                except (json.JSONDecodeError, ValidationError):
+                    # the tool did not return the ToolResult shape
+                    result = Utils.capture_error("INVALID_RESPONSE", "Something went wrong. Please try again.")
+                except Exception:
+                    result = Utils.capture_error("TOOL_FAILURE", "Something went wrong. Please try again.")
 
-            elif tool_name == "search_user_memory":
-                updates["memory_results"] = data.get("memory_results")
 
-            elif tool_name == "search_policy":
-                updates["retrieved_context"] = data.get("retrieved_context", "")
+            ok = result.success
+
+            # ---- every tool call gets exactly one ToolMessage; `internal` is excluded ----
+            outputs.append(ToolMessage(
+                content=result.model_dump_json(exclude={"internal"}, exclude_none=True),
+                tool_call_id=tool_call["id"],
+                name=tool_name,
+                status="success" if ok else "error",
+            ))
+
+            # ---- state is updated only on success ----
+            if not ok:
+                continue
+
+            try:
+                if tool_name == "search_product":
+                    new_products = result.internal.get("product_memory")
+                    if not new_products:
+                        continue
+
+                    # read from updates first so two searches in one turn merge
+                    base = updates.get("product_memory", state.get("product_memory") or {})
+                    memory = {**base, **new_products}
+
+                    # more than 5 products: reset, and keep only this search's products
+                    if len(memory) > 5:
+                        memory = new_products
+
+                    updates["search_results"] = result.internal.get("search_results", [])
+                    updates["product_memory"] = memory
+                    updates["search_completed"] = True
+
+                elif tool_name == "add_product_to_cart":
+                    updates["cart"] = result.data
+
+                elif tool_name == "get_cart_tool":
+                    updates["cart_details"] = result.data
+
+                elif tool_name == "search_user_memory":
+                    updates["memory_results"] = result.data
+
+                elif tool_name == "search_policy":
+                    updates["retrieved_context"] = result.data or ""
+
+            except Exception:
+                logger.exception("State update failed for tool %s", tool_name)
 
         return {"messages": outputs, **updates}
 

@@ -48,6 +48,7 @@ def build_chat_model():
         base_url=ai_settings.LLM_BASE_URL,
         streaming=ai_settings.LLM_STREAMING,
         temperature=0,
+        num_predict=1024,
     )
 
 
@@ -56,9 +57,10 @@ tools = [
     Tools.save_user_meomry,
     Tools.search_policy,
     Tools.search_user_memory,
-    Tools.add_product_to_cart
-    # Tools.get_cart_tool(db=db)
+    Tools.add_product_to_cart,
+    Tools.get_cart_tool,
+    Tools.remove_product_from_cart,
     ]
-llm_with_tools = build_chat_model().bind_tools(tools)
+llm_with_tools = build_chat_model().bind_tools(tools=tools)
 
 

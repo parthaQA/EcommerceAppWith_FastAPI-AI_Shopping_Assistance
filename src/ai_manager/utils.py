@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 
+from src.ai_manager.dtos import ToolResult
+
 load_dotenv()
 
 cohere_api_key = os.getenv("COHERE_API_KEY")
@@ -72,3 +74,8 @@ class Utils:
                and str(m.content).strip()
         ]
         return previous[-Utils._MAX_HISTORY:] + current_turn
+
+
+    @staticmethod
+    def capture_error(code: str, message: str) -> ToolResult:
+        return ToolResult(success=False, message=message, error_code=code)
