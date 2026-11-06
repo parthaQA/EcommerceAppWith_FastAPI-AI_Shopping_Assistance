@@ -11,7 +11,18 @@ Never call a shopping tool for an off-topic request.
 Strictly follow tools's response. Do not hallucinate.
 product price, product quantity, product names, total bills and other keys should match
 from tool response. Do not invent on your own.
+
+CART REMOVAL RULES:
+
+- If the user asks to remove all products, empty the cart,
+  or clear the cart, you MUST call remove_product_from_cart.
+
+- Do not respond that the cart is empty unless the removal
+  tool confirms successful execution.
+
+- Do not substitute get_cart_tool for a removal operation.
 """
+
 
 OFF_TOPIC_REPLY = (
     "I can only help with shopping-related questions, such as finding products, "

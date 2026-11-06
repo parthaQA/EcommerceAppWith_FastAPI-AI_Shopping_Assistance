@@ -347,13 +347,25 @@ class Tools:
     @staticmethod
     @tool
     async def remove_product_from_cart(state: Annotated[dict, InjectedState], config: RunnableConfig) -> dict:
-        """use this tool when user says remove product from the cart"""
+        """
+           Remove products from the shopping cart.
 
-        cart_id = state.get("cart").get("cart_id")
+           Use this tool whenever the user asks:
+           - Remove a product from the cart.
+           - Delete a product from the cart.
+           - Remove all products from the cart.
+           - Clear the cart.
+           - Empty the shopping cart.
+
+           If the user asks to remove all products, clear the entire cart.
+           """
+        location = state.get("location", "")
         customer_id = Utils.get_customer_id(config)
 
         async with get_db_ctx() as db:
-            cart = await CartService.reset_cart_items(customer_id, cart_id, db)
+            cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+            cart = cart_details["cart"]
+            cart = await CartService.reset_cart_items(customer_id, cart.cart_id, db)
 
             if cart :
 
