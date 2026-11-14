@@ -4,13 +4,17 @@
 import os
 import hashlib
 import json
+import time
+
 from dotenv import load_dotenv
 import cohere
 from fastapi import HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import interrupt
 
 from src.ai_manager.dtos import ToolResult
+from src.ai_manager.settings import AISettings
 
 load_dotenv()
 
@@ -79,3 +83,29 @@ class Utils:
     @staticmethod
     def capture_error(code: str, message: str) -> ToolResult:
         return ToolResult(success=False, message=message, error_code=code)
+
+    @staticmethod
+    def ask_confirmation(action: str, message: str | None = None) -> dict:
+        """Pause the graph and return the user's decision. Call this FIRST in a sensitive tool."""
+
+
+        answer = interrupt({
+            "type": "confirm_action",
+            "action": action,  # "clear_cart", "place_order", ...
+            "message": message,
+            "expires_at": time.time() + 300,
+        })
+
+        print("User confirmation response:", answer)
+
+        if not isinstance(answer, dict):
+            return {"approved": False}
+
+        return answer
+
+    @staticmethod
+    def pending_interrupt(snapshot):
+        for task in snapshot.tasks:
+            if task.interrupts:
+                return task.interrupts[0]
+        return None

@@ -17,9 +17,13 @@ class SearchResponse(BaseModel):
     products: list[ProductResponse]
 
 
+class ResumeInput(BaseModel):
+    approved: bool
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str =Field(min_length=4, max_length=8)
+    resume: ResumeInput | None = None
 
 class ChatResponse(BaseModel):
     reply: str

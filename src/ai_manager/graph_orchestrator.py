@@ -1,9 +1,10 @@
 import asyncio
 import json
 from typing import Annotated, TypedDict
-from fastapi import HTTPException
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.errors import GraphBubbleUp, GraphInterrupt
+from langgraph.types import interrupt
 from langsmith import traceable
 from langchain_core.messages import SystemMessage, BaseMessage
 from langgraph.graph import StateGraph, START, END
@@ -185,6 +186,8 @@ class GraphOrchestrator:
         ]
 
         response = await model.ainvoke(messages, config)
+
+
         return {"messages": [response]}
 
     @staticmethod
@@ -230,8 +233,6 @@ class GraphOrchestrator:
                 except (json.JSONDecodeError, ValidationError):
                     # the tool did not return the ToolResult shape
                     result = Utils.capture_error("INVALID_RESPONSE", "Something went wrong. Please try again.")
-                except Exception:
-                    result = Utils.capture_error("TOOL_FAILURE", "Something went wrong. Please try again.")
 
 
             ok = result.success
@@ -341,6 +342,8 @@ class GraphOrchestrator:
         )
 
         graph.add_edge("product_not_found", END)
+
+
 
         return graph.compile(checkpointer=checkpointer)
 

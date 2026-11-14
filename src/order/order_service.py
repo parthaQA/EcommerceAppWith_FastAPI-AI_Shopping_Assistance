@@ -64,6 +64,9 @@ class OrderService:
         body: OrderSchema,
         db: AsyncSession,
     ) -> dict:
+
+        print(f"Creating order for customer_id: {customer_id}, cart_id: {body}")
+
         await CartService.get_owned_cart(body.cart_id, customer_id, db)
 
         delivery_address = await db.scalar(

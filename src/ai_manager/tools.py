@@ -12,8 +12,10 @@ from src.ai_manager.utils import Utils
 from src.cart.cart_service import CartService
 from langgraph.types import interrupt
 
-from src.cart.dtos import CartResponseSchema, CartItemSchema, CartProductsResponseSchema
+from src.cart.dtos import CartResponseSchema, CartItemSchema, CartProductsResponseSchema, DeliveryAddressSchema, \
+    PaymentPreferenceSchema
 from src.cart.models import CartItemModel
+from src.order.order_service import OrderService
 from src.products.dtos import ProductResponseSchema
 from src.products.product_service import ProductService
 from src.utils.db import get_db_ctx
@@ -357,8 +359,16 @@ class Tools:
            - Clear the cart.
            - Empty the shopping cart.
 
-           If the user asks to remove all products, clear the entire cart.
+           If the user asks to remove all products, first ask for confirmation to user.
            """
+
+        decision = Utils.ask_confirmation(action="clear_cart", message="...")
+
+        print("decision :", decision)
+
+        if not decision.get("approved"):
+            return ToolResult(success=False, message="User cancelled. Cart unchanged.", data={}).model_dump_json()
+
         location = state.get("location", "")
         customer_id = Utils.get_customer_id(config)
 
@@ -382,8 +392,176 @@ class Tools:
                     data={},
                 ).model_dump_json()
 
+    @staticmethod
+    @tool
+    async def place_order_tool(state : Annotated[dict, InjectedState], config : RunnableConfig) -> dict:
+        """Place an order for the items in the shopping cart.
+
+        Use this tool when the user wants to:
+        - Place an order
+        - Checkout
+        - Complete the purchase
+
+        This tool should only be called after confirming the user's intent to place the order.
+        """
+        decision = Utils.ask_confirmation(action="place_order", message="Are you sure you want to place the order?")
+
+        print("decision :", decision)
+
+        if not decision.get("approved"):
+            return ToolResult(success=False, message="User cancelled. Order not placed.", data={}).model_dump_json()
+
+
+        customer_id = Utils.get_customer_id(config)
+        location = state.get("location", "")
+
+        order_details = {}
+
+        async with get_db_ctx() as db:
+            cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+            cart = cart_details["cart"]
+
+            try:
+                place_order_response = await OrderService.create(customer_id=customer_id, body=cart, db=db)
+
+                print("place order response :", place_order_response)
+
+                order_details = {
+                    "order_id" : place_order_response.get("id"),
+                    "address" : place_order_response.get("address"),
+                    "pincode" : place_order_response.get("pincode"),
+                    "city" :  place_order_response.get("city"),
+                    "payment_mode" : place_order_response.get("payment_mode"),
+                    "order_status" : place_order_response.get("order_status"),
+                    "payment_status" : place_order_response.get("payment_status")
+                }
+
+
+
+            except Exception as e:
+                print("Error while placing order:", str(e))
+
+                if "delivery address is not added" in str(e) :
+
+                    return ToolResult(
+                    success=False,
+                    message=f"order is not placed due to {str(e)}. add address in in this format address, city, pincode",
+                    data={},
+                    ).model_dump_json()
+
+                elif "payment" in str(e):
+                    return ToolResult(
+                        success=False,
+                        message=f"order is not placed due to {str(e)}. add payment mode as COD",
+                        data={},
+                    ).model_dump_json()
+
+
+
+        return ToolResult(
+            success=True,
+            message="Order has been placed successfully.",
+            data=order_details,
+        ).model_dump_json()
+
+    @staticmethod
+    @tool
+    async def add_delivery_address_tool(state : Annotated[dict, InjectedState], config : RunnableConfig, address: str,
+                                        pincode: int, city: str) -> dict:
+        """Add a delivery address for the user.
+
+        Use this tool when the user wants to:
+        - Add a new delivery address
+        - ask user for address, pincode and city details
+        """
+        customer_id = Utils.get_customer_id(config)
+        location = state.get("location", "")
+
+        delivery_address = DeliveryAddressSchema(
+            address = address,
+            pincode = int(pincode),
+            city = city
+        )
+
+        added_address = {}
+
+        async with get_db_ctx() as db:
+
+            cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+            cart = cart_details["cart"]
+            try:
+                address_response = await CartService.add_delivery_address(customer_id=customer_id, cart_id=cart.cart_id, body=delivery_address, db=db)
+
+                added_address = {
+                    "delivery_address" : address_response.address,
+                    "pincode" : address_response.pincode,
+                    "city" : address_response.city
+                }
+
+                print("added address :", added_address)
+
+            except Exception as e:
+
+                print(f"error while adding address {str(e)}")
+
+                return ToolResult(
+                    success=False,
+                    message=f"{str(e)}, address is not added please make sure the format is 'address', 'pincode' and 'city'",
+                    data={},
+                ).model_dump_json()
+
+        return ToolResult(
+            success=True,
+            message=f"address is added",
+            data=added_address,
+        ).model_dump_json()
+
+    @staticmethod
+    @tool
+    async def add_payment_mode_tool(state: Annotated[dict, InjectedState], config: RunnableConfig, payment_mode: str):
+        """Add a payment preference/mode for the user.
+
+                Use this tool when the user wants to:
+                - Add a new payment mode
+                - ask cash as payment mode
+                - if user says I want to make payment with cash then set COD as {payment_mode}
+                """
+        customer_id = Utils.get_customer_id(config)
+        location = state.get("location", "")
+
+        payment_preference = PaymentPreferenceSchema(
+            payment_mode=payment_mode.upper(),
+        )
+
+
+        async with get_db_ctx() as db:
+            cart_details = await CartService.create_cart(customer_id=customer_id, location=location, db=db)
+            cart = cart_details["cart"]
+            try:
+
+                payment_response = await CartService.add_payment_preference(customer_id=customer_id, cart_id = cart.cart_id, body = payment_preference, db = db)
+
+                print("payment_response : ", payment_response.payment_mode)
+
+            except Exception as e:
+                print(f"payment mode is not added {str(e)}, please make sure payment preference is 'COD'")
+
+                return ToolResult(
+                    success=False,
+                    message=f"payment mode is not added {str(e)}, please make sure payment preference is 'COD'",
+                    data={},
+                ).model_dump_json()
+
+        return ToolResult(
+            success=True,
+            message=f"payment mode is added as {payment_response.payment_mode} ",
+            data=payment_response.payment_mode,
+        ).model_dump_json()
+
+
+
 
     @classmethod
     def all(cls) -> list:
         return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy, cls.add_product_to_cart,
-                cls.remove_product_from_cart, cls.get_cart_tool]
+                cls.remove_product_from_cart, cls.get_cart_tool, cls.place_order_tool, cls.add_delivery_address_tool, cls.add_payment_mode_tool]
