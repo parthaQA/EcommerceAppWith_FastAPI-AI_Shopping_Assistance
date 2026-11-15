@@ -558,10 +558,56 @@ class Tools:
             data=payment_response.payment_mode,
         ).model_dump_json()
 
+    @staticmethod
+    @tool
+    async def order_details_by_id_tool(config: RunnableConfig, order_id: str):
+
+        """call this tool when user wants to know about his/her order details or order status.
+        This tool accepts order id as parameter"""
+
+        customer_id = Utils.get_customer_id(config)
+
+        order_details = {}
+
+        async with get_db_ctx() as db:
+
+            try :
+                order_details_response = await OrderService.get_details_by_order_id(
+                customer_id=customer_id,
+                order_id = order_id,
+                db = db
+                    )
+
+                orders = order_details_response["order"]
+                print("order id of order:", orders.id)
+
+
+                order_details = {
+                    "order_id" : orders.id,
+                    "status" : orders.order_status,
+                    "payment_status" : orders.payment_status,
+                    "payment_mode" : orders.payment_mode
+                }
+
+            except Exception as e:
+
+                return ToolResult(
+                    success=False,
+                    message=f"something is wrong with the order {str(e)}",
+                    data={},
+                ).model_dump_json()
+
+        return ToolResult(
+                    success=True,
+                    message=f"order detail is fetched successfully {order_details}",
+                    data=order_details,
+                ).model_dump_json()
+
 
 
 
     @classmethod
     def all(cls) -> list:
         return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy, cls.add_product_to_cart,
-                cls.remove_product_from_cart, cls.get_cart_tool, cls.place_order_tool, cls.add_delivery_address_tool, cls.add_payment_mode_tool]
+                cls.remove_product_from_cart, cls.get_cart_tool, cls.place_order_tool, cls.add_delivery_address_tool, cls.add_payment_mode_tool,
+                cls.order_details_by_id_tool]

@@ -62,7 +62,8 @@ tools = [
     Tools.remove_product_from_cart,
     Tools.place_order_tool,
     Tools.add_delivery_address_tool,
-    Tools.add_payment_mode_tool
+    Tools.add_payment_mode_tool,
+    Tools.order_details_by_id_tool
     ]
 llm_with_tools = build_chat_model().bind_tools(tools=tools)
 
