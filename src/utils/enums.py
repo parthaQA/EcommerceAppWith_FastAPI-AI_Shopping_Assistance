@@ -10,7 +10,6 @@ class OrderStatus:
     @classmethod
     def cannot_cancel(cls) -> set[str]:
         return {
-            cls.ACCEPTED,
             cls.READY_TO_SHIP,
             cls.PACKED,
             cls.OUT_FOR_DELIVERY,

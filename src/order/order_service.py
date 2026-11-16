@@ -214,11 +214,11 @@ class OrderService:
         order = await OrderService.get_owned_order(customer_id, order_id, db)
         OrderService.accept_if_due(order)
 
-        if order.order_status != OrderStatus.PENDING:
+        if order.order_status != OrderStatus.PENDING and order.order_status != OrderStatus.ACCEPTED:
             await db.commit()
             raise HTTPException(
                 status_code=400,
-                detail="Order cannot be cancelled",
+                detail="Order cannot be cancelled when status is not pending or accepted",
             )
 
         order.order_status = OrderStatus.CANCELLED

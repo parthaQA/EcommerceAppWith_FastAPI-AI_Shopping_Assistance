@@ -604,10 +604,52 @@ class Tools:
                 ).model_dump_json()
 
 
+    @staticmethod
+    @tool
+    async def cancel_order_tool(config: RunnableConfig, order_id: str):
+
+        """call this tool when user wants to cancel the order which is in
+        pending status"""
+
+        customer_id = Utils.get_customer_id(config)
+
+        cancel_order_details = {}
+
+        async with get_db_ctx() as db:
+            try:
+                cancel_order_details_response = await OrderService.cancel(
+                    customer_id=customer_id,
+                    order_id=order_id,
+                    db=db
+                )
+
+                print("cancel_order details :", cancel_order_details_response.id)
+
+                cancel_order_details = {
+                    "order_id" : cancel_order_details_response.id,
+                    "order_status" : cancel_order_details_response.order_status,
+                    "payment_status" : cancel_order_details_response.payment_status,
+                    "payment_mode" :  cancel_order_details_response.payment_mode,
+                }
+
+            except Exception as e:
+
+                return ToolResult(
+                    success=False,
+                    message=f"order cannot be canceled at this this, {str(e)}",
+                    data={},
+                ).model_dump_json()
+
+        return ToolResult(
+            success=True,
+            message=f"order detail is fetched successfully {cancel_order_details}",
+            data=cancel_order_details,
+        ).model_dump_json()
+
 
 
     @classmethod
     def all(cls) -> list:
         return [cls.search_product, cls.save_user_meomry, cls.search_user_memory, cls.search_policy, cls.add_product_to_cart,
                 cls.remove_product_from_cart, cls.get_cart_tool, cls.place_order_tool, cls.add_delivery_address_tool, cls.add_payment_mode_tool,
-                cls.order_details_by_id_tool]
+                cls.order_details_by_id_tool, cls.cancel_order_tool]
